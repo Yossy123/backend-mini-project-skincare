@@ -62,7 +62,7 @@ class BookingSystemSeeder extends Seeder
         // 2. Seed Doctor Users & Doctors
         $doctorsData = [
             [
-                'email' => 'doctor.yoshi@lumiere.com',
+                'email' => 'doctor.yoshi@nobodyderm.com',
                 'name' => 'dr. Yoshi Sp.D.V.E',
                 'title' => 'Dermatologist & Aesthetic Specialist',
                 'specialization' => 'Dermatologi & Estetika Medis',
@@ -80,7 +80,7 @@ class BookingSystemSeeder extends Seeder
                 'skills' => ['Acne Management', 'Skin Barrier Restoration', 'Laser & Peeling', 'Anti-Aging'],
             ],
             [
-                'email' => 'doctor.sinta@lumiere.com',
+                'email' => 'doctor.sinta@nobodyderm.com',
                 'name' => 'Sinta Putri Dipl.CIBTAC',
                 'title' => 'Senior Aesthetician & Skin Therapist',
                 'specialization' => 'Skin Therapist & Facialist',
@@ -98,7 +98,7 @@ class BookingSystemSeeder extends Seeder
                 'skills' => ['Deep Cleansing Facial', 'Lymphatic Drainage Massage', 'Scalp Care', 'Glow Infusion'],
             ],
             [
-                'email' => 'doctor.alana@lumiere.com',
+                'email' => 'doctor.alana@nobodyderm.com',
                 'name' => 'dr. Alana Widjaja M.Biomed (AAM)',
                 'title' => 'Anti-Aging & Laser Specialist',
                 'specialization' => 'Anti-Aging & Glow Therapy',

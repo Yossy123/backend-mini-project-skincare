@@ -27,7 +27,7 @@ class DatabaseSeeder extends Seeder
 
         // 2. Create Admin and standard Demo Customer
         $admin = User::firstOrCreate(
-            ['email' => 'admin@lumiere.com'],
+            ['email' => 'admin@nobodyderm.com'],
             [
                 'name' => 'Lumière Admin',
                 'role' => 'admin',
