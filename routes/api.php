@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\BiteshipWebhookController;
 use App\Http\Controllers\Api\AddressController;
 use App\Http\Controllers\Api\Admin\AdminAnalyticsController;
 use App\Http\Controllers\Api\Admin\AdminAppointmentController;
@@ -55,7 +54,6 @@ Route::post('/checkout/validate', [CheckoutController::class, 'validate'])->midd
 Route::apiResource('orders', OrderController::class)->only(['index', 'store', 'show'])->middleware('auth:sanctum');
 Route::post('/payments', [PaymentController::class, 'store'])->middleware('auth:sanctum');
 Route::post('/webhooks/midtrans', [PaymentController::class, 'webhook']);
-Route::post('/webhooks/biteship', [BiteshipWebhookController::class, 'handle']);
 
 // Shipping & Courier Rates (Biteship)
 Route::prefix('shipping')->group(function () {

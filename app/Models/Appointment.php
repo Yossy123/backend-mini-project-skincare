@@ -54,11 +54,6 @@ class Appointment extends Model
         return $this->belongsTo(Service::class);
     }
 
-    public function creator(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'created_by');
-    }
-
     public function statusHistories(): HasMany
     {
         return $this->hasMany(AppointmentStatusHistory::class)->orderByDesc('created_at');

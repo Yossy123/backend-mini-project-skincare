@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -46,11 +45,6 @@ class User extends Authenticatable
         return $this->role === 'doctor';
     }
 
-    public function isCustomer(): bool
-    {
-        return $this->role === 'customer' || empty($this->role);
-    }
-
     public function addresses(): HasMany
     {
         return $this->hasMany(Address::class);
@@ -64,15 +58,5 @@ class User extends Authenticatable
     public function customerAuditLogs(): HasMany
     {
         return $this->hasMany(CustomerAuditLog::class, 'customer_id')->orderByDesc('created_at');
-    }
-
-    public function doctor(): HasOne
-    {
-        return $this->hasOne(Doctor::class);
-    }
-
-    public function patient(): HasOne
-    {
-        return $this->hasOne(Patient::class);
     }
 }

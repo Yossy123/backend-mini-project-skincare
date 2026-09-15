@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Contracts\ShippingProviderInterface;
 use App\Services\Shipping\BiteshipClient;
 use App\Services\Shipping\BiteshipRateService;
-use App\Services\Shipping\BiteshipResponseMapper;
 use App\Services\Shipping\BiteshipShipmentService;
 use App\Services\Shipping\BiteshipTrackingService;
 use App\Services\Shipping\BiteshipWebhookService;
@@ -14,26 +13,16 @@ class BiteshipService implements ShippingProviderInterface
 {
     public function __construct(
         protected ?BiteshipClient $client = null,
-        protected ?BiteshipResponseMapper $mapper = null,
         protected ?BiteshipRateService $rateService = null,
         protected ?BiteshipShipmentService $shipmentService = null,
         protected ?BiteshipTrackingService $trackingService = null,
         protected ?BiteshipWebhookService $webhookService = null
     ) {
         $this->client = $client ?? app(BiteshipClient::class);
-        $this->mapper = $mapper ?? app(BiteshipResponseMapper::class);
         $this->rateService = $rateService ?? app(BiteshipRateService::class);
         $this->shipmentService = $shipmentService ?? app(BiteshipShipmentService::class);
         $this->trackingService = $trackingService ?? app(BiteshipTrackingService::class);
         $this->webhookService = $webhookService ?? app(BiteshipWebhookService::class);
-    }
-
-    /**
-     * Get default store origin postal code.
-     */
-    public function getOriginPostalCode(): int
-    {
-        return $this->client->getOriginPostalCode();
     }
 
     /**
@@ -172,13 +161,5 @@ class BiteshipService implements ShippingProviderInterface
     public function handleWebhook(array $payload): array
     {
         return $this->webhookService->handleWebhook($payload);
-    }
-
-    /**
-     * Map external Biteship shipment status to internal shipment status.
-     */
-    public function mapBiteshipStatus(string $status): string
-    {
-        return $this->mapper->mapBiteshipStatus($status);
     }
 }

@@ -150,14 +150,4 @@ class OrderService
             ->orderByDesc('id')
             ->paginate($perPage);
     }
-
-    /**
-     * Retrieve a single order for a user.
-     */
-    public function getUserOrderById(User $user, int $orderId): ?Order
-    {
-        return $user->orders()
-            ->with(['orderItems', 'shipment', 'payment'])
-            ->find($orderId);
-    }
 }

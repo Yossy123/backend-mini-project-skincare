@@ -17,9 +17,6 @@ class Order extends Model
     public const STATUS_PROCESSING = 'PROCESSING';
     public const STATUS_SHIPPED = 'SHIPPED';
     public const STATUS_DELIVERED = 'DELIVERED';
-    public const STATUS_COMPLETED = 'COMPLETED';
-    public const STATUS_CANCELLED = 'CANCELLED';
-    public const STATUS_EXPIRED = 'EXPIRED';
 
     /** @use HasFactory<OrderFactory> */
     use HasFactory;
