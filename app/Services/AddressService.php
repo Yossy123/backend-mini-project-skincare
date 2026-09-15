@@ -4,12 +4,17 @@ namespace App\Services;
 
 use App\Models\Address;
 use App\Models\User;
+use App\Services\Shipping\BiteshipRateService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class AddressService
 {
+    public function __construct(
+        protected BiteshipRateService $biteshipRates
+    ) {}
+
     /**
      * Retrieve all addresses belonging to the user (default address first).
      *
@@ -58,6 +63,8 @@ class AddressService
      */
     public function updateAddress(Address $address, array $data): Address
     {
+        $this->validateAddressPayload($data);
+
         return DB::transaction(function () use ($address, $data) {
             if (! empty($data['is_default']) && ! $address->is_default) {
                 Address::where('user_id', $address->user_id)
@@ -125,6 +132,38 @@ class AddressService
         if (! empty($postalCode) && ! preg_match('/^\d{5}$/', $postalCode)) {
             throw ValidationException::withMessages([
                 'postal_code' => ['Postal code must be a valid 5-digit number.'],
+            ]);
+        }
+
+        $this->verifyBiteshipArea($data, $postalCode);
+    }
+
+    /**
+     * Verify the client-supplied Biteship area ID exists and matches the
+     * postal code, so quoted rates cannot be skewed by arbitrary area IDs.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    protected function verifyBiteshipArea(array $data, string $postalCode): void
+    {
+        $areaId = trim((string) ($data['biteship_area_id'] ?? ''));
+        if ($areaId === '') {
+            return;
+        }
+
+        $area = $this->biteshipRates->getArea($areaId);
+
+        if ($area === null) {
+            throw ValidationException::withMessages([
+                'biteship_area_id' => ['The selected location could not be verified. Please re-select your area.'],
+            ]);
+        }
+
+        if ($postalCode !== '' && (string) ($area['zip_code'] ?? '') !== $postalCode) {
+            throw ValidationException::withMessages([
+                'biteship_area_id' => ['The selected location does not match the provided postal code.'],
             ]);
         }
     }

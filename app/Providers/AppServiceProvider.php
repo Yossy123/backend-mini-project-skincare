@@ -48,5 +48,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('shipping', function (Request $request) {
             return Limit::perMinute(30)->by($request->ip());
         });
+
+        // Inbound provider webhooks: limit forged-secret brute-force attempts.
+        RateLimiter::for('webhook', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
     }
 }

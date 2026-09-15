@@ -99,6 +99,52 @@ class BiteshipRateService
     }
 
     /**
+     * Retrieve a single area by its Biteship area ID (Maps API).
+     *
+     * @return array<string, mixed>|null Null when the ID is unknown or the provider is unreachable.
+     */
+    public function getArea(string $areaId): ?array
+    {
+        $areaId = trim($areaId);
+        if ($areaId === '') {
+            return null;
+        }
+
+        $cacheKey = 'biteship_area_'.md5($areaId);
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        try {
+            $response = $this->client->httpClient()
+                ->get($this->client->getBaseUrl().'/v1/maps/areas/'.rawurlencode($areaId));
+
+            if ($response->successful()) {
+                $area = $response->json('area') ?? $response->json();
+
+                if (is_array($area) && ! empty($area['id'])) {
+                    Cache::put($cacheKey, $area, 604800);
+
+                    return $area;
+                }
+            }
+
+            Log::warning("Biteship getArea returned HTTP {$response->status()}", [
+                'area_id' => $areaId,
+                'body' => $response->body(),
+            ]);
+        } catch (Exception $e) {
+            Log::warning('Biteship getArea exception', [
+                'area_id' => $areaId,
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        return null;
+    }
+
+    /**
      * Search location areas for destination matching using Biteship Maps API.
      *
      * @return array<int, array{

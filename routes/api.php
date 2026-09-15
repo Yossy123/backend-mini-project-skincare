@@ -59,7 +59,7 @@ Route::post('/webhooks/midtrans', [PaymentController::class, 'webhook']);
 Route::prefix('shipping')->group(function () {
     Route::post('/rates', [ShippingController::class, 'rates'])->middleware(['auth:sanctum', 'throttle:shipping']);
     Route::get('/destinations', [ShippingController::class, 'destinations'])->middleware('throttle:shipping');
-    Route::post('/webhook/biteship', [ShippingWebhookController::class, 'handleBiteship']);
+    Route::post('/webhook/biteship', [ShippingWebhookController::class, 'handleBiteship'])->middleware('throttle:webhook');
 });
 
 // Categories & Products (Public Catalog)

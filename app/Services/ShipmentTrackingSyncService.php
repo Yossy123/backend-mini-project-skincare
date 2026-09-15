@@ -71,6 +71,33 @@ class ShipmentTrackingSyncService
                     });
 
                     $updatedCount++;
+                } elseif ($status === 'returned' && strtolower($shipment->status) !== 'returned') {
+                    // Terminal non-delivery outcome: record it so admin can
+                    // decide on refund/replacement. Order status is left for
+                    // manual admin action.
+                    DB::transaction(function () use ($shipment, $tracking) {
+                        $previousStatus = $shipment->status;
+
+                        $shipment->update([
+                            'status' => 'returned',
+                            'biteship_tracking_id' => $tracking['tracking_id'] ?? $shipment->biteship_tracking_id,
+                            'biteship_waybill_id' => $tracking['waybill_id'] ?? $shipment->biteship_waybill_id,
+                        ]);
+
+                        OrderAuditLog::create([
+                            'order_id' => $shipment->order_id,
+                            'admin_id' => null,
+                            'action' => 'SHIPMENT_SYNC_RETURNED',
+                            'previous_status' => strtoupper((string) $previousStatus),
+                            'new_status' => 'RETURNED',
+                            'note' => 'Biteship telemetry sync reported the parcel was returned.',
+                            'metadata' => [
+                                'tracking' => $tracking,
+                            ],
+                        ]);
+                    });
+
+                    $updatedCount++;
                 }
             } catch (\Exception $e) {
                 Log::warning('Shipment tracking sync error for shipment #'.$shipment->id, [
