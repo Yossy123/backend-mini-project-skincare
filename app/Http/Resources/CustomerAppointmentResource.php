@@ -28,6 +28,11 @@ class CustomerAppointmentResource extends JsonResource
             'consultation_mode' => $this->consultation_mode,
             'complaint' => $this->complaint,
             'patient_notes' => $this->patient_notes,
+            // Clinical details are visible to the patient only after the appointment is completed.
+            'diagnosis' => $this->status === 'completed' ? $this->diagnosis : null,
+            'doctor_notes' => $this->status === 'completed' ? $this->doctor_notes : null,
+            'treatment_plan' => $this->status === 'completed' ? $this->treatment_plan : null,
+            'prescription' => $this->status === 'completed' ? $this->prescription : null,
             'status' => $this->status,
             'cancellation_reason' => $this->cancellation_reason,
             'created_at' => $this->created_at?->toIso8601String(),

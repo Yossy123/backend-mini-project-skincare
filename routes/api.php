@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\Doctor\DoctorDashboardController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\MyAppointmentsController;
+use App\Http\Controllers\Api\MyPatientProfileController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductController;
@@ -43,6 +44,7 @@ Route::prefix('auth')->group(function () {
 
 // Authenticated User Profile
 Route::get('/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
+Route::get('/my-profile/health', [MyPatientProfileController::class, 'show'])->middleware('auth:sanctum');
 
 // Customer Addresses (CRUD)
 Route::apiResource('addresses', AddressController::class)->middleware('auth:sanctum');
