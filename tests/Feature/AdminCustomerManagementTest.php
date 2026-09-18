@@ -207,4 +207,19 @@ class AdminCustomerManagementTest extends TestCase
             'action' => 'CUSTOMER_REACTIVATED',
         ]);
     }
-}
+
+    /** Admin permanently deletes customer accounts, including cascade dependent records. */
+    public function test_admin_can_permanently_delete_customer_account(): void
+    {
+        $order = $this->createOrder('PAID');
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->deleteJson("/api/admin/customers/{$this->customer->id}");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('message', "Customer {$this->customer->name} and associated records have been permanently deleted.");
+
+        $this->assertDatabaseMissing('users', ['id' => $this->customer->id]);
+        $this->assertDatabaseMissing('orders', ['id' => $order->id]);
+        $this->assertDatabaseMissing('customer_audit_logs', ['customer_id' => $this->customer->id]);
+    }}

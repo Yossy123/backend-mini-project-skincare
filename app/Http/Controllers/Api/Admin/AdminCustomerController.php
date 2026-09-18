@@ -44,6 +44,18 @@ class AdminCustomerController extends Controller
     }
 
     /**
+     * Permanently delete a customer account and its dependent records.
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $name = $this->customerService->deleteCustomer($id);
+
+        return response()->json([
+            'message' => "Customer {$name} and associated records have been permanently deleted.",
+        ], 200);
+    }
+
+    /**
      * Toggle customer account activation status (Deactivate / Reactivate).
      */
     public function toggle(int $id, Request $request): JsonResponse

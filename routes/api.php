@@ -112,6 +112,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     // E-Commerce Analytics Suite
     Route::prefix('analytics')->group(function () {
         Route::get('/sales', [AdminAnalyticsController::class, 'sales']);
+        Route::get('/sales/export', [AdminAnalyticsController::class, 'exportSales']);
         Route::get('/orders', [AdminAnalyticsController::class, 'orders']);
         Route::get('/products', [AdminAnalyticsController::class, 'products']);
         Route::get('/customers', [AdminAnalyticsController::class, 'customers']);
@@ -157,6 +158,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         Route::get('/', [AdminCustomerController::class, 'index']);
         Route::get('/{id}', [AdminCustomerController::class, 'show']);
         Route::patch('/{id}/toggle', [AdminCustomerController::class, 'toggle']);
+        Route::delete('/{id}', [AdminCustomerController::class, 'destroy']);
     });
 
     // Admin Clinical Appointments Management

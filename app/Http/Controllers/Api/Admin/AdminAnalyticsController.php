@@ -12,6 +12,8 @@ use App\Services\Analytics\ShippingAnalyticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+use App\Models\Order;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 class AdminAnalyticsController extends Controller
 {
     public function __construct(
@@ -37,6 +39,69 @@ class AdminAnalyticsController extends Controller
         return response()->json([
             'data' => $data,
         ], 200);
+    }
+
+    /**
+     * Download order-level paid sales for the requested calendar period as CSV.
+     */
+    public function exportSales(Request $request): StreamedResponse
+    {
+        $validated = $request->validate([
+            'period' => ['required', 'in:week,month,year'],
+        ]);
+        [$start, $end] = $this->salesAnalyticsService->resolveDateRange($validated['period']);
+        $period = $validated['period'];
+        $filename = sprintf('laporan-penjualan-%s-%s.csv', $period, $start->toDateString());
+
+        return response()->streamDownload(function () use ($start, $end) {
+            $output = fopen('php://output', 'w');
+            fwrite($output, chr(0xEF).chr(0xBB).chr(0xBF));
+            fputcsv($output, [
+                'ID Pesanan', 'Tanggal', 'Nama Customer', 'Email Customer', 'Produk',
+                'Jumlah Item', 'Subtotal (IDR)', 'Ongkir (IDR)', 'Total (IDR)', 'Status',
+            ]);
+
+            $safeText = static function (?string $value): string {
+                $value = $value ?? '';
+                if (preg_match('/^[=+\-@\t\r]/', $value)) {
+                    return "'".$value;
+                }
+                return $value;
+            };
+
+            Order::with([
+                'user:id,name,email',
+                'orderItems:id,order_id,product_name,quantity',
+            ])
+                ->whereIn('status', SalesAnalyticsService::VALID_PAID_STATUSES)
+                ->whereBetween('created_at', [$start, $end])
+                ->orderBy('id')
+                ->chunkById(500, function ($orders) use ($output, $safeText) {
+                    foreach ($orders as $order) {
+                        $products = $order->orderItems
+                            ->map(fn ($item) => $safeText($item->product_name).' x '.$item->quantity)
+                            ->implode(' | ');
+
+                        fputcsv($output, [
+                            $order->id,
+                            $order->created_at?->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
+                            $safeText($order->user?->name),
+                            $safeText($order->user?->email),
+                            $products,
+                            $order->orderItems->sum('quantity'),
+                            number_format((float) $order->subtotal, 2, '.', ''),
+                            number_format((float) $order->shipping_cost, 2, '.', ''),
+                            number_format((float) $order->total, 2, '.', ''),
+                            $order->status,
+                        ]);
+                    }
+                });
+
+            fclose($output);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, private',
+        ]);
     }
 
     /**

@@ -121,6 +121,18 @@ class SalesAnalyticsService
         $now = Carbon::now('Asia/Jakarta');
 
         return match ($period) {
+            'week' => [
+                $now->copy()->startOfWeek(Carbon::MONDAY),
+                $now->copy()->endOfWeek(Carbon::SUNDAY),
+            ],
+            'month' => [
+                $now->copy()->startOfMonth(),
+                $now->copy()->endOfMonth(),
+            ],
+            'year' => [
+                $now->copy()->startOfYear(),
+                $now->copy()->endOfYear(),
+            ],
             'today' => [
                 $now->copy()->startOfDay(),
                 $now->copy()->endOfDay(),

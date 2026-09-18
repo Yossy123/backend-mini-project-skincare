@@ -225,4 +225,23 @@ class AdminCustomerService
             return $this->getCustomerDetail($customer->id);
         });
     }
+
+    /** Permanently delete a customer account and all records configured to cascade from it. */
+    public function deleteCustomer(int $customerId): string
+    {
+        return DB::transaction(function () use ($customerId) {
+            $customer = User::where('id', $customerId)
+                ->where(function ($q) {
+                    $q->where('role', 'customer')->orWhereNull('role');
+                })
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $name = $customer->name;
+            $customer->tokens()->delete();
+            $customer->delete();
+
+            return $name;
+        });
+    }
 }

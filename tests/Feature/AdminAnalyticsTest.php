@@ -301,4 +301,52 @@ class AdminAnalyticsTest extends TestCase
         $this->assertEquals(9000, $shipResponse->json('data.summary.total_shipping_cost'));
         $this->assertEquals('JNE', $shipResponse->json('data.courier_usage.0.courier'));
     }
+
+    /** CSV export includes paid sales in the requested period and excludes unpaid or old orders. */
+    public function test_admin_can_export_monthly_sales_as_csv(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'name' => 'CSV Customer',
+            'email' => 'csv-customer@example.com',
+        ]);
+
+        $paidOrder = $this->createTestOrder([
+            'user_id' => $customer->id,
+            'status' => 'PAID',
+        ]);
+        OrderItem::create([
+            'order_id' => $paidOrder->id,
+            'product_name' => 'Monthly Serum',
+            'unit_price' => 100000,
+            'quantity' => 2,
+            'subtotal' => 200000,
+        ]);
+
+        $cancelledOrder = $this->createTestOrder([
+            'user_id' => $customer->id,
+            'status' => 'CANCELLED',
+        ]);
+        $oldOrder = $this->createTestOrder([
+            'user_id' => $customer->id,
+            'status' => 'PAID',
+        ]);
+        $oldOrder->created_at = now()->subYear();
+        $oldOrder->save();
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->get('/api/admin/analytics/sales/export?period=month');
+
+        $response->assertOk();
+        $this->assertStringContainsString('text/csv', $response->headers->get('content-type'));
+        $this->assertStringContainsString('csv-customer@example.com', $response->streamedContent());
+        $this->assertStringContainsString('Monthly Serum x 2', $response->streamedContent());
+        $csv = $response->streamedContent();
+        $rows = array_values(array_filter(
+            array_map('str_getcsv', preg_split('/\r?\n/', $csv)),
+            fn ($row) => count($row) > 1
+        ));
+        $orderIds = array_map(fn ($row) => (int) $row[0], array_slice($rows, 1));
+        $this->assertSame([$paidOrder->id], $orderIds);
+    }
 }
