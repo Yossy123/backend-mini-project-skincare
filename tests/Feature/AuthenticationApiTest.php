@@ -169,6 +169,58 @@ class AuthenticationApiTest extends TestCase
         $response->assertStatus(401);
     }
 
+    public function test_authenticated_user_can_update_own_profile(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Old Name',
+            'email' => 'old-profile@example.com',
+            'phone' => '081234567890',
+        ]);
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        $response = $this->withHeader('Authorization', "Bearer {$token}")
+            ->patchJson('/api/me', [
+                'name' => 'New Name',
+                'email' => 'new-profile@example.com',
+                'phone' => '081298765432',
+            ]);
+
+        $response->assertOk()
+            ->assertJsonPath('user.name', 'New Name')
+            ->assertJsonPath('user.email', 'new-profile@example.com')
+            ->assertJsonPath('user.phone', '081298765432');
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'name' => 'New Name',
+            'email' => 'new-profile@example.com',
+            'phone' => '081298765432',
+        ]);
+    }
+
+    public function test_profile_update_rejects_email_used_by_another_account(): void
+    {
+        User::factory()->create(['email' => 'taken@example.com']);
+        $user = User::factory()->create();
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->patchJson('/api/me', [
+                'name' => 'Valid Name',
+                'email' => 'taken@example.com',
+                'phone' => null,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('email');
+    }
+
+    public function test_profile_update_requires_authentication(): void
+    {
+        $this->patchJson('/api/me', [
+            'name' => 'Valid Name',
+            'email' => 'valid@example.com',
+            'phone' => null,
+        ])->assertUnauthorized();
+    }
     /**
      * Test customer can logout and token is revoked.
      */

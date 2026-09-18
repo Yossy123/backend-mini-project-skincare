@@ -44,6 +44,7 @@ Route::prefix('auth')->group(function () {
 
 // Authenticated User Profile
 Route::get('/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
+Route::patch('/me', [AuthController::class, 'updateMe'])->middleware('auth:sanctum');
 Route::get('/my-profile/health', [MyPatientProfileController::class, 'show'])->middleware('auth:sanctum');
 
 // Customer Addresses (CRUD)

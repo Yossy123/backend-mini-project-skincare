@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
@@ -85,6 +86,29 @@ class AuthController extends Controller
     {
         return response()->json([
             'user' => new UserResource($request->user()),
+        ], 200);
+    }
+    /** Update the authenticated user's own account details. */
+    public function updateMe(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
+            'phone' => ['nullable', 'string', 'max:30'],
+        ]);
+
+        $user->fill($validated)->save();
+
+        return response()->json([
+            'message' => 'Profil berhasil diperbarui.',
+            'user' => new UserResource($user->fresh()),
         ], 200);
     }
 }
