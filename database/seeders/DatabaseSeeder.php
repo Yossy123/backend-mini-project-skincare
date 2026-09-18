@@ -22,14 +22,13 @@ class DatabaseSeeder extends Seeder
         $this->call([
             CategorySeeder::class,
             ProductSeeder::class,
-            BookingSystemSeeder::class,
         ]);
 
         // 2. Create Admin and standard Demo Customer
         $admin = User::firstOrCreate(
             ['email' => 'admin@nobodyderm.com'],
             [
-                'name' => 'Lumière Admin',
+                'name' => 'Lumiere Admin',
                 'role' => 'admin',
                 'phone' => '+628110000000',
                 'password' => bcrypt('password'),
@@ -45,6 +44,8 @@ class DatabaseSeeder extends Seeder
                 'password' => bcrypt('password'),
             ]
         );
+
+        $this->call(BookingSystemSeeder::class);
 
         // 3. Create Addresses for Customer
         $address = Address::firstOrCreate(
@@ -62,6 +63,8 @@ class DatabaseSeeder extends Seeder
                 'is_default' => true,
             ]
         );
+
+        $this->call(DashboardDemoSeeder::class);
 
         // 4. Create sample Order with OrderItems, Payment, and Shipment
         $serum = Product::where('slug', 'lumiere-radiance-vitamin-c-serum-30ml')->first();
@@ -112,6 +115,16 @@ class DatabaseSeeder extends Seeder
                 ]
             );
 
+            OrderItem::firstOrCreate(
+                ['order_id' => $order->id, 'product_id' => $cream->id],
+                [
+                    'product_name' => $cream->name,
+                    'unit_price' => $cream->price,
+                    'quantity' => $item2Qty,
+                    'subtotal' => $item2Subtotal,
+                ]
+            );
+
             Payment::firstOrCreate(
                 ['order_id' => $order->id],
                 [
@@ -125,6 +138,16 @@ class DatabaseSeeder extends Seeder
                         'transaction_status' => 'settlement',
                         'payment_type' => 'qris',
                     ],
+                ]
+            );
+
+            Shipment::firstOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'courier' => 'JNE',
+                    'service' => 'YES',
+                    'tracking_number' => 'DEMO-BASE-'.$order->id,
+                    'status' => 'pending',
                 ]
             );
         }

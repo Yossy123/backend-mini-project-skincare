@@ -143,7 +143,7 @@ class ProductSeeder extends Seeder
 
         foreach ($products as $product) {
             if ($product['category_id']) {
-                Product::updateOrCreate(['slug' => $product['slug']], $product);
+                Product::firstOrCreate(['slug' => $product['slug']], $product);
             }
         }
     }

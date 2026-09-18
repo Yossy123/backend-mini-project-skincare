@@ -208,7 +208,9 @@ class BookingSystemSeeder extends Seeder
                     'status' => 'confirmed',
                 ]
             );
-            $appt1->logStatusChange('confirmed', null, 'Initial seed confirmation');
+            if ($appt1->wasRecentlyCreated) {
+                $appt1->logStatusChange('confirmed', null, 'Initial seed confirmation');
+            }
 
             // Appointment 2: Past Completed with Medical Record
             $pastDate = Carbon::today()->subDays(7)->format('Y-m-d');
@@ -230,7 +232,9 @@ class BookingSystemSeeder extends Seeder
                     'status' => 'completed',
                 ]
             );
-            $appt2->logStatusChange('completed', null, 'Initial seed completed');
+            if ($appt2->wasRecentlyCreated) {
+                $appt2->logStatusChange('completed', null, 'Initial seed completed');
+            }
         }
     }
 }

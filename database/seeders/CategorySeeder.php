@@ -26,6 +26,12 @@ class CategorySeeder extends Seeder
                 'is_active' => true,
             ],
             [
+                'name' => 'Fragrance',
+                'slug' => 'fragrance',
+                'description' => 'Perfume and fragrance essentials for daily wear.',
+                'is_active' => true,
+            ],
+            [
                 'name' => 'Body Care',
                 'slug' => 'body-care',
                 'description' => 'Botanical body oils, smoothing scrubs, and intensely nourishing body butters.',
