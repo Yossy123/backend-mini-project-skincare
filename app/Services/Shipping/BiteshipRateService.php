@@ -71,6 +71,11 @@ class BiteshipRateService
             $requestPayload['destination_longitude'] = (float) $params['destination_longitude'];
         }
 
+        if ($this->client->getOriginLatitude() !== null && $this->client->getOriginLongitude() !== null) {
+            $requestPayload['origin_latitude'] = $this->client->getOriginLatitude();
+            $requestPayload['origin_longitude'] = $this->client->getOriginLongitude();
+        }
+
         try {
             $response = $this->client->httpClient()
                 ->withHeaders(['Content-Type' => 'application/json'])

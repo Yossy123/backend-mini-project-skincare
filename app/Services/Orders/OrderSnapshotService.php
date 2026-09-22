@@ -23,6 +23,8 @@ class OrderSnapshotService
             'city' => $address->city,
             'district' => $address->district,
             'postal_code' => $address->postal_code,
+            'latitude' => $address->latitude,
+            'longitude' => $address->longitude,
             'address' => $address->address,
             'address_line' => $address->address_line,
             'address_detail' => $address->address_detail,

@@ -42,6 +42,13 @@ class ShippingService
         ?User $user = null,
         ?array $items = null
     ): array {
+        if (! (bool) config('services.biteship.instant_enabled', false)) {
+            $instantCouriers = ['grab', 'gojek'];
+            $couriers = is_array($couriers)
+                ? array_values(array_diff(array_map('strtolower', $couriers), $instantCouriers))
+                : $couriers;
+        }
+
         if ($weightInGrams <= 0) {
             throw ValidationException::withMessages([
                 'weight' => ['Package weight must be at least 1 gram.'],
@@ -108,7 +115,7 @@ class ShippingService
      * Resolve destination parameter to Biteship destination parameters.
      * STRICT: Never falls back silently to default cities like Jakarta Selatan.
      *
-     * @return array{destination_postal_code?: int, destination_area_id?: string}
+     * @return array{destination_postal_code?: int, destination_area_id?: string, destination_latitude?: float, destination_longitude?: float}
      *
      * @throws ValidationException
      */
@@ -186,15 +193,20 @@ class ShippingService
     {
         $postalCode = trim((string) $address->postal_code);
 
+        $coordinates = $address->latitude !== null && $address->longitude !== null ? [
+            'destination_latitude' => (float) $address->latitude,
+            'destination_longitude' => (float) $address->longitude,
+        ] : [];
+
         if (! empty($address->biteship_area_id)) {
-            return [
+            return array_merge([
                 'destination_area_id' => (string) $address->biteship_area_id,
                 'destination_postal_code' => preg_match('/^\d{5}$/', $postalCode) ? (int) $postalCode : null,
-            ];
+            ], $coordinates);
         }
 
         if (preg_match('/^\d{5}$/', $postalCode)) {
-            return ['destination_postal_code' => (int) $postalCode];
+            return array_merge(['destination_postal_code' => (int) $postalCode], $coordinates);
         }
 
         // If postal code is missing or irregular, try location search

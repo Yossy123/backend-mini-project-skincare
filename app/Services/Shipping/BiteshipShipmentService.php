@@ -34,6 +34,22 @@ class BiteshipShipmentService
         $courier = strtolower(trim((string) ($payload['courier'] ?? '')));
         $service = strtolower(trim((string) ($payload['service'] ?? '')));
 
+        if (in_array($courier, ['grab', 'gojek'], true) && ! (bool) config('services.biteship.instant_enabled', false)) {
+            Log::warning('Instant courier booking skipped because it is not enabled.', ['courier' => $courier]);
+
+            return [
+                'success' => false,
+                'order_id' => '',
+                'waybill_id' => null,
+                'tracking_id' => null,
+                'status' => 'disabled',
+                'courier' => strtoupper($courier),
+                'service' => strtoupper($service),
+                'price' => 0.0,
+                'raw' => [],
+            ];
+        }
+
         if (empty($destination['postal_code']) || empty($items) || empty($courier) || empty($service)) {
             return [
                 'success' => false,
@@ -75,6 +91,20 @@ class BiteshipShipmentService
                 ];
             }, $items),
         ];
+
+        if ($this->client->getOriginLatitude() !== null && $this->client->getOriginLongitude() !== null) {
+            $biteshipOrderPayload['origin_coordinate'] = [
+                'latitude' => $this->client->getOriginLatitude(),
+                'longitude' => $this->client->getOriginLongitude(),
+            ];
+        }
+
+        if (isset($destination['latitude'], $destination['longitude'])) {
+            $biteshipOrderPayload['destination_coordinate'] = [
+                'latitude' => (float) $destination['latitude'],
+                'longitude' => (float) $destination['longitude'],
+            ];
+        }
 
         try {
             $response = $this->client->httpClient()

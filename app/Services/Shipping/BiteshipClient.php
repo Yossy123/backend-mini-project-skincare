@@ -20,6 +20,8 @@ class BiteshipClient
     protected string $originContactName;
 
     protected string $originContactPhone;
+    protected ?float $originLatitude;
+    protected ?float $originLongitude;
 
     protected int $timeout;
 
@@ -36,6 +38,8 @@ class BiteshipClient
         $this->originAddress = (string) config('services.biteship.origin_address', 'Jl. Kebayoran Lama No. 12, Jakarta Selatan');
         $this->originContactName = (string) config('services.biteship.origin_contact_name', 'NOBYDERM Store');
         $this->originContactPhone = (string) config('services.biteship.origin_contact_phone', '081234567890');
+        $this->originLatitude = config('services.biteship.origin_latitude') !== null ? (float) config('services.biteship.origin_latitude') : null;
+        $this->originLongitude = config('services.biteship.origin_longitude') !== null ? (float) config('services.biteship.origin_longitude') : null;
         $this->timeout = (int) config('services.biteship.timeout', 10);
         $this->webhookSecret = (string) config('services.biteship.webhook_secret', '');
         $this->webhookSignatureKey = (string) config('services.biteship.webhook_signature_key', '');
@@ -92,6 +96,10 @@ class BiteshipClient
     {
         return $this->originContactPhone;
     }
+
+    public function getOriginLatitude(): ?float { return $this->originLatitude; }
+
+    public function getOriginLongitude(): ?float { return $this->originLongitude; }
 
     public function getTimeout(): int
     {

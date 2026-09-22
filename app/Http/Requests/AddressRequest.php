@@ -50,6 +50,8 @@ class AddressRequest extends FormRequest
             'city' => ['required', 'string', 'max:255'],
             'district' => ['required', 'string', 'max:255'],
             'postal_code' => ['required', 'string', 'max:10'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'biteship_area_id' => ['nullable', 'string', 'max:100'],
             'address' => ['required', 'string'],
             'address_line' => ['nullable', 'string'],

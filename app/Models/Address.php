@@ -27,6 +27,8 @@ class Address extends Model
         'city',
         'district',
         'postal_code',
+        'latitude',
+        'longitude',
         'biteship_area_id',
         'address',
         'address_line',
@@ -43,6 +45,8 @@ class Address extends Model
     {
         return [
             'biteship_area_id' => 'string',
+            'latitude' => 'float',
+            'longitude' => 'float',
             'is_default' => 'boolean',
         ];
     }
