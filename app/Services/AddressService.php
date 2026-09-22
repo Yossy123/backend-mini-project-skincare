@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Shipping\BiteshipRateService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class AddressService
@@ -37,7 +38,7 @@ class AddressService
      */
     public function createAddress(User $user, array $data): Address
     {
-        $this->validateAddressPayload($data);
+        $data = $this->validateAddressPayload($data);
 
         return DB::transaction(function () use ($user, $data) {
             $existingCount = $user->addresses()->count();
@@ -63,7 +64,7 @@ class AddressService
      */
     public function updateAddress(Address $address, array $data): Address
     {
-        $this->validateAddressPayload($data);
+        $data = $this->validateAddressPayload($data);
 
         return DB::transaction(function () use ($address, $data) {
             if (! empty($data['is_default']) && ! $address->is_default) {
@@ -124,9 +125,11 @@ class AddressService
      *
      * @param  array<string, mixed>  $data
      *
+     * @return array<string, mixed>
+     *
      * @throws ValidationException
      */
-    protected function validateAddressPayload(array $data): void
+    protected function validateAddressPayload(array $data): array
     {
         $postalCode = trim((string) ($data['postal_code'] ?? ''));
         if (! empty($postalCode) && ! preg_match('/^\d{5}$/', $postalCode)) {
@@ -135,7 +138,7 @@ class AddressService
             ]);
         }
 
-        $this->verifyBiteshipArea($data, $postalCode);
+        return $this->verifyBiteshipArea($data, $postalCode);
     }
 
     /**
@@ -144,21 +147,29 @@ class AddressService
      *
      * @param  array<string, mixed>  $data
      *
+     * @return array<string, mixed>
+     *
      * @throws ValidationException
      */
-    protected function verifyBiteshipArea(array $data, string $postalCode): void
+    protected function verifyBiteshipArea(array $data, string $postalCode): array
     {
         $areaId = trim((string) ($data['biteship_area_id'] ?? ''));
         if ($areaId === '') {
-            return;
+            return $data;
         }
 
         $area = $this->biteshipRates->getArea($areaId);
 
         if ($area === null) {
-            throw ValidationException::withMessages([
-                'biteship_area_id' => ['The selected location could not be verified. Please re-select your area.'],
+            // An address remains usable with its postal code and coordinates.
+            // Do not make a temporary Maps API failure block checkout setup.
+            Log::warning('Biteship area could not be verified; saving address without area ID.', [
+                'area_id' => $areaId,
+                'postal_code' => $postalCode,
             ]);
+            $data['biteship_area_id'] = null;
+
+            return $data;
         }
 
         if ($postalCode !== '' && (string) ($area['zip_code'] ?? '') !== $postalCode) {
@@ -166,5 +177,7 @@ class AddressService
                 'biteship_area_id' => ['The selected location does not match the provided postal code.'],
             ]);
         }
+
+        return $data;
     }
 }
