@@ -18,7 +18,7 @@ class AdminOrderQueryService
         $query = Order::query()
             ->with([
                 'user:id,name,email,phone',
-                'payment:id,order_id,status,provider,amount',
+                'payment:id,order_id,status,provider,amount,requires_review,refund_amount',
                 'shipment:id,order_id,courier,service,tracking_number,status',
             ]);
 

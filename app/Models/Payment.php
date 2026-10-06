@@ -20,6 +20,12 @@ class Payment extends Model
     protected $fillable = [
         'order_id',
         'provider',
+        'merchant_order_id',
+        'requires_review',
+        'refund_request_key',
+        'refund_request_amount',
+        'refund_request_reason',
+        'refund_completed_keys',
         'transaction_id',
         'snap_token',
         'redirect_url',
@@ -45,6 +51,9 @@ class Payment extends Model
     {
         return [
             'amount' => 'decimal:2',
+            'requires_review' => 'boolean',
+            'refund_request_amount' => 'decimal:2',
+            'refund_completed_keys' => 'array',
             'paid_at' => 'datetime',
             'expires_at' => 'datetime',
             'raw_response' => 'array',
@@ -69,7 +78,7 @@ class Payment extends Model
      */
     public function isRefunded(): bool
     {
-        return $this->status === 'refunded' || ! empty($this->refunded_at);
+        return $this->status === 'refunded' || (float) $this->refund_amount >= (float) $this->amount;
     }
 
     /**
@@ -77,7 +86,7 @@ class Payment extends Model
      */
     public function canBeRefunded(): bool
     {
-        $eligibleStatuses = ['settlement', 'capture', 'success', 'paid'];
+        $eligibleStatuses = ['settlement', 'capture', 'success', 'paid', 'partially_refunded'];
 
         return in_array(strtolower($this->status), $eligibleStatuses, true) && ! $this->isRefunded();
     }

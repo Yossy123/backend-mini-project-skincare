@@ -2,6 +2,7 @@
 
 namespace App\Services\Shipping;
 
+use App\Models\Order;
 use App\Models\OrderAuditLog;
 use App\Models\Shipment;
 use Illuminate\Http\Request;
@@ -131,7 +132,10 @@ class BiteshipWebhookService
             });
 
             /** @var Shipment|null $shipment */
-            $shipment = $query->first();
+            $shipmentId = $query->value('id');
+            $orderId = $shipmentId ? Shipment::whereKey($shipmentId)->value('order_id') : null;
+            $order = $orderId ? Order::whereKey($orderId)->lockForUpdate()->first() : null;
+            $shipment = $shipmentId ? Shipment::whereKey($shipmentId)->lockForUpdate()->first() : null;
 
             if (! $shipment) {
                 Log::info('Biteship webhook received for untracked shipment', [
@@ -142,7 +146,6 @@ class BiteshipWebhookService
                 return;
             }
 
-            $order = $shipment->order;
             $oldShipmentStatus = strtolower($shipment->status);
 
             // Terminal states cannot regress
@@ -152,6 +155,7 @@ class BiteshipWebhookService
                         'biteship_order_id' => $shipment->biteship_order_id ?: ($normalized['order_id'] ?? null),
                         'biteship_tracking_id' => $shipment->biteship_tracking_id ?: ($normalized['tracking_id'] ?? null),
                         'biteship_waybill_id' => $shipment->biteship_waybill_id ?: ($normalized['waybill_id'] ?? null),
+                        'tracking_number' => $normalized['waybill_id'] ?: $shipment->tracking_number,
                     ]);
                 }
 
@@ -180,6 +184,7 @@ class BiteshipWebhookService
                     'biteship_order_id' => $shipment->biteship_order_id ?: ($normalized['order_id'] ?? null),
                     'biteship_tracking_id' => $shipment->biteship_tracking_id ?: ($normalized['tracking_id'] ?? null),
                     'biteship_waybill_id' => $shipment->biteship_waybill_id ?: ($normalized['waybill_id'] ?? null),
+                    'tracking_number' => $normalized['waybill_id'] ?: $shipment->tracking_number,
                 ]);
 
                 return;
@@ -190,6 +195,7 @@ class BiteshipWebhookService
                 'biteship_order_id' => $normalized['order_id'] ?? $shipment->biteship_order_id,
                 'biteship_tracking_id' => $normalized['tracking_id'] ?? $shipment->biteship_tracking_id,
                 'biteship_waybill_id' => $normalized['waybill_id'] ?? $shipment->biteship_waybill_id,
+                'tracking_number' => $normalized['waybill_id'] ?: $shipment->tracking_number,
             ];
 
             if ($newStatus === 'shipped' && empty($shipment->shipped_at)) {
@@ -205,6 +211,16 @@ class BiteshipWebhookService
 
             if ($order) {
                 $orderStatus = strtoupper($order->status);
+                if ($newStatus === 'returned') {
+                    $order->payment?->update(['requires_review' => true]);
+                    OrderAuditLog::create([
+                        'order_id' => $order->id,
+                        'action' => 'SHIPMENT_RETURNED_REQUIRES_REVIEW',
+                        'previous_status' => $orderStatus,
+                        'new_status' => $orderStatus,
+                        'note' => 'Courier reported return. Verify physical goods before restocking or issuing a replacement.',
+                    ]);
+                }
 
                 if ($newStatus === 'delivered' && in_array($orderStatus, ['SHIPPED', 'PROCESSING', 'PAID'], true)) {
                     $order->status = 'DELIVERED';
@@ -241,18 +257,15 @@ class BiteshipWebhookService
                         ],
                     ]);
                 } elseif ($newStatus === 'cancelled' && ! in_array($orderStatus, ['DELIVERED', 'COMPLETED', 'CANCELLED'], true)) {
-                    $order->status = 'CANCELLED';
-                    $order->cancellation_reason = 'courier_cancelled';
-                    $order->cancellation_note = $normalized['note'] ?: 'Biteship webhook confirmed shipment cancellation.';
-                    $order->cancelled_at = now();
-                    $order->save();
+                    // Courier cancellation does not cancel the purchase or prove physical stock was returned.
+                    $order->payment?->update(['requires_review' => true]);
 
                     OrderAuditLog::create([
                         'order_id' => $order->id,
                         'admin_id' => null,
-                        'action' => 'ORDER_CANCELLED',
+                        'action' => 'COURIER_CANCELLED_REQUIRES_REVIEW',
                         'previous_status' => $orderStatus,
-                        'new_status' => 'CANCELLED',
+                        'new_status' => $orderStatus,
                         'note' => 'Biteship webhook confirmed shipment cancellation.',
                         'metadata' => [
                             'courier' => $shipment->courier,

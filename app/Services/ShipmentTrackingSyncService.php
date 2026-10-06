@@ -3,9 +3,8 @@
 namespace App\Services;
 
 use App\Contracts\ShippingProviderInterface;
-use App\Models\OrderAuditLog;
 use App\Models\Shipment;
-use Illuminate\Support\Facades\DB;
+use App\Services\Shipping\BiteshipWebhookService;
 use Illuminate\Support\Facades\Log;
 
 class ShipmentTrackingSyncService
@@ -22,8 +21,10 @@ class ShipmentTrackingSyncService
     public function syncActiveShipments(): int
     {
         $activeShipments = Shipment::with('order')
-            ->where('status', 'shipped')
-            ->whereNotNull('tracking_number')
+            ->whereIn('status', ['processing', 'shipped'])
+            ->where(function ($query) {
+                $query->whereNotNull('tracking_number')->orWhereNotNull('biteship_tracking_id')->orWhereNotNull('biteship_waybill_id');
+            })
             ->get();
 
         if ($activeShipments->isEmpty()) {
@@ -43,62 +44,20 @@ class ShipmentTrackingSyncService
                 );
 
                 $status = strtolower($tracking['status'] ?? '');
+                if (in_array($status, ['processing', 'shipped', 'delivered', 'cancelled', 'returned'], true)) {
+                    app(BiteshipWebhookService::class)->processWebhookPayload([
+                        'order_id' => $shipment->biteship_order_id,
+                        'tracking_id' => $tracking['tracking_id'] ?? $shipment->biteship_tracking_id,
+                        'waybill_id' => $tracking['waybill_id'] ?? $shipment->biteship_waybill_id ?? $shipment->tracking_number,
+                        'status' => $status,
+                    ]);
+                    if ($shipment->fresh()->status !== $shipment->status) {
+                        $updatedCount++;
+                    }
 
-                if ($status === 'delivered' && strtolower($shipment->status) !== 'delivered') {
-                    DB::transaction(function () use ($shipment, $tracking) {
-                        $shipment->update([
-                            'status' => 'delivered',
-                            'delivered_at' => now(),
-                            'biteship_tracking_id' => $tracking['tracking_id'] ?? $shipment->biteship_tracking_id,
-                            'biteship_waybill_id' => $tracking['waybill_id'] ?? $shipment->biteship_waybill_id,
-                        ]);
-
-                        if ($shipment->order && strtoupper($shipment->order->status) === 'SHIPPED') {
-                            $shipment->order->update(['status' => 'DELIVERED']);
-
-                            OrderAuditLog::create([
-                                'order_id' => $shipment->order_id,
-                                'admin_id' => null,
-                                'action' => 'SHIPMENT_SYNC_DELIVERED',
-                                'previous_status' => 'SHIPPED',
-                                'new_status' => 'DELIVERED',
-                                'note' => 'Biteship telemetry sync confirmed parcel delivery.',
-                                'metadata' => [
-                                    'tracking' => $tracking,
-                                ],
-                            ]);
-                        }
-                    });
-
-                    $updatedCount++;
-                } elseif ($status === 'returned' && strtolower($shipment->status) !== 'returned') {
-                    // Terminal non-delivery outcome: record it so admin can
-                    // decide on refund/replacement. Order status is left for
-                    // manual admin action.
-                    DB::transaction(function () use ($shipment, $tracking) {
-                        $previousStatus = $shipment->status;
-
-                        $shipment->update([
-                            'status' => 'returned',
-                            'biteship_tracking_id' => $tracking['tracking_id'] ?? $shipment->biteship_tracking_id,
-                            'biteship_waybill_id' => $tracking['waybill_id'] ?? $shipment->biteship_waybill_id,
-                        ]);
-
-                        OrderAuditLog::create([
-                            'order_id' => $shipment->order_id,
-                            'admin_id' => null,
-                            'action' => 'SHIPMENT_SYNC_RETURNED',
-                            'previous_status' => strtoupper((string) $previousStatus),
-                            'new_status' => 'RETURNED',
-                            'note' => 'Biteship telemetry sync reported the parcel was returned.',
-                            'metadata' => [
-                                'tracking' => $tracking,
-                            ],
-                        ]);
-                    });
-
-                    $updatedCount++;
+                    continue;
                 }
+
             } catch (\Exception $e) {
                 Log::warning('Shipment tracking sync error for shipment #'.$shipment->id, [
                     'message' => $e->getMessage(),

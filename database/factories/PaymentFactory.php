@@ -24,6 +24,7 @@ class PaymentFactory extends Factory
         return [
             'order_id' => Order::factory(),
             'provider' => 'midtrans',
+            'merchant_order_id' => fn (array $attributes) => 'ORDER-'.$attributes['order_id'],
             'transaction_id' => 'TRX-'.Str::upper(Str::random(12)),
             'status' => 'pending',
             'amount' => fake()->randomFloat(2, 100000, 2000000),

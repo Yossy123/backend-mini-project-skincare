@@ -75,4 +75,27 @@ class MidtransService
             hash('sha512', $input)
         );
     }
+
+    public function getTransactionStatus(string $identity): ?array
+    {
+        $response = $this->client()->baseUrl(rtrim((string) config('services.midtrans.api_base_url'), '/'))
+            ->get('/'.rawurlencode($identity).'/status');
+        if ($response->status() === 404 || (string) $response->json('status_code') === '404') {
+            return null;
+        }
+        if ($response->failed()) {
+            throw new RuntimeException('Midtrans status verification failed. Reserved stock was retained.');
+        }
+
+        return (array) $response->json();
+    }
+
+    public function cancelSnapSession(string $token): bool
+    {
+        $response = $this->client()->withHeaders(['Authorization' => (string) config('services.midtrans.server_key')])
+            ->post('/snap/v1/transactions/'.rawurlencode($token).'/cancel');
+
+        return ($response->successful() && ! empty($response->json('canceled_at')))
+            || in_array('token already canceled', (array) $response->json('error_messages'), true);
+    }
 }

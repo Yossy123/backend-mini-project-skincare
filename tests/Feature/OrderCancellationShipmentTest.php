@@ -140,7 +140,7 @@ class OrderCancellationShipmentTest extends TestCase
             ->assertJsonPath('data.status', 'CANCELLED');
 
         // Local cancellation must survive; shipment telemetry stays under webhook control.
-        $this->assertEquals(10, $this->product->fresh()->stock);
+        $this->assertEquals(9, $this->product->fresh()->stock);
         $this->assertEquals('processing', $order->shipment->fresh()->status);
     }
 

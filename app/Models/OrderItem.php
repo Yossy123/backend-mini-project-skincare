@@ -23,6 +23,7 @@ class OrderItem extends Model
         'product_name',
         'unit_price',
         'quantity',
+        'weight',
         'subtotal',
     ];
 

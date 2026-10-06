@@ -31,8 +31,8 @@ class CreateBiteshipShipmentJob implements ShouldQueue
     {
         // Atomic cache lock prevents concurrent workers from booking the same
         // shipment twice. It is held only for the duration of this attempt
-        // (30s TTL) and never wraps the external HTTP call in a DB lock.
-        $lock = Cache::lock('shipment:create:'.$this->orderId, 30);
+        // (120s TTL) and never wraps the external HTTP call in a DB lock.
+        $lock = Cache::lock('shipment:create:'.$this->orderId, 120);
 
         try {
             $lock->block(5);
@@ -47,11 +47,22 @@ class CreateBiteshipShipmentJob implements ShouldQueue
                 ->whereKey($this->orderId)
                 ->first();
 
-            if (! $order || ! in_array(strtoupper($order->status), ['PROCESSING', 'PAID'], true)) {
+            if (! $order) {
                 return;
             }
 
             $shipment = $order->shipment;
+            if (! in_array(strtoupper($order->status), ['PROCESSING', 'PAID'], true)) {
+                if ($shipment?->biteship_order_id && $shipment->status === 'processing') {
+                    $result = $provider->cancelShipment($shipment->biteship_order_id, 'others');
+                    if (! ($result['success'] ?? false)) {
+                        throw new \RuntimeException('Courier cancellation failed for a closed order.');
+                    }
+                    $shipment->update(['status' => 'cancelled']);
+                }
+
+                return;
+            }
             if (! $shipment || $shipment->biteship_order_id) {
                 return;
             }
@@ -63,7 +74,7 @@ class CreateBiteshipShipmentJob implements ShouldQueue
                 'items' => $order->orderItems->map(fn ($item) => [
                     'product_name' => $item->product_name,
                     'unit_price' => (float) $item->unit_price,
-                    'weight' => (int) ($item->product?->weight ?? 0),
+                    'weight' => (int) ($item->weight ?? $item->product?->weight ?? 0),
                     'quantity' => (int) $item->quantity,
                 ])->values()->all(),
             ]);
@@ -78,7 +89,8 @@ class CreateBiteshipShipmentJob implements ShouldQueue
 
             // Short transaction: re-verify the claim so a shipment booked by
             // another writer is never overwritten, then persist identifiers.
-            DB::transaction(function () use ($shipment, $result) {
+            $shouldCancel = DB::transaction(function () use ($shipment, $result) {
+                $currentOrder = Order::whereKey($this->orderId)->lockForUpdate()->first();
                 $fresh = $shipment->newQuery()
                     ->whereKey($shipment->getKey())
                     ->lockForUpdate()
@@ -90,7 +102,10 @@ class CreateBiteshipShipmentJob implements ShouldQueue
                         'biteship_order_id' => $result['order_id'],
                     ]);
 
-                    return;
+                    return true;
+                }
+                if (! $currentOrder || in_array(strtoupper($currentOrder->status), ['SHIPPED', 'DELIVERED', 'COMPLETED'], true)) {
+                    return true;
                 }
 
                 $fresh->update([
@@ -102,7 +117,12 @@ class CreateBiteshipShipmentJob implements ShouldQueue
                     'service' => $result['service'] ?: $fresh->service,
                     'status' => 'processing',
                 ]);
+
+                return ! $currentOrder || ! in_array(strtoupper($currentOrder->status), ['PAID', 'PROCESSING'], true);
             });
+            if ($shouldCancel) {
+                CancelBiteshipShipmentJob::dispatch($this->orderId, $result['order_id'])->afterCommit();
+            }
         } finally {
             $lock->release();
         }

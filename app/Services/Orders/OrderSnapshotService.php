@@ -45,6 +45,7 @@ class OrderSnapshotService
                 'product_name' => $itemData['product_name'],
                 'unit_price' => $itemData['unit_price'],
                 'quantity' => $itemData['quantity'],
+                'weight' => $itemData['weight'],
                 'subtotal' => $itemData['subtotal'],
             ]);
         }

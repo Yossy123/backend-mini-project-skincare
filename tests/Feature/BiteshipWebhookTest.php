@@ -108,12 +108,12 @@ class BiteshipWebhookTest extends TestCase
             ->assertJsonPath('success', true);
 
         $this->assertEquals('cancelled', $shipment->fresh()->status);
-        $this->assertEquals('CANCELLED', $order->fresh()->status);
-        $this->assertEquals('courier_cancelled', $order->fresh()->cancellation_reason);
+        $this->assertEquals('PROCESSING', $order->fresh()->status);
+        $this->assertNull($order->fresh()->cancellation_reason);
         $this->assertDatabaseHas('order_audit_logs', [
             'order_id' => $order->id,
-            'action' => 'ORDER_CANCELLED',
-            'new_status' => 'CANCELLED',
+            'action' => 'COURIER_CANCELLED_REQUIRES_REVIEW',
+            'new_status' => 'PROCESSING',
         ]);
     }
 

@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
-use App\Models\Payment;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -74,7 +74,8 @@ class MidtransPaymentTest extends TestCase
         $this->assertDatabaseHas('payments', ['order_id' => $order->id, 'amount' => 125000, 'snap_token' => 'snap-token-123']);
         Http::assertSent(fn ($request) => $request->url() === 'https://app.sandbox.midtrans.com/snap/v1/transactions'
             && $request['transaction_details']['gross_amount'] === 125000
-            && preg_match('/^ORDER-'.$order->id.'-\d+$/', (string) $request['transaction_details']['order_id']) === 1);
+            && str_starts_with((string) $request['transaction_details']['order_id'], 'ORDER-'.$order->id.'-')
+            && $request['transaction_details']['order_id'] === $order->payment->fresh()->merchant_order_id);
     }
 
     public function test_suffixed_midtrans_order_id_maps_back_to_local_order(): void
@@ -86,6 +87,7 @@ class MidtransPaymentTest extends TestCase
 
         $notification = $this->notification($order, 'settlement');
         $notification['order_id'] = 'ORDER-'.$order->id.'-'.now()->getTimestamp();
+        $order->payment->update(['merchant_order_id' => $notification['order_id']]);
         $notification['signature_key'] = hash(
             'sha512',
             $notification['order_id'].$notification['status_code'].$notification['gross_amount'].'test-server-key'

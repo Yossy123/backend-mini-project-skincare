@@ -59,7 +59,7 @@ class ShipmentTrackingTest extends TestCase
 
         $this->assertDatabaseHas('order_audit_logs', [
             'order_id' => $order->id,
-            'action' => 'SHIPMENT_SYNC_DELIVERED',
+            'action' => 'SHIPMENT_DELIVERED',
             'new_status' => 'DELIVERED',
         ]);
     }

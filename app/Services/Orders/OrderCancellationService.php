@@ -3,9 +3,11 @@
 namespace App\Services\Orders;
 
 use App\Contracts\ShippingProviderInterface;
+use App\Jobs\CancelBiteshipShipmentJob;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -41,6 +43,11 @@ class OrderCancellationService
      */
     public function cancelOrder(int $orderId, User $admin, array $payload): Order
     {
+        return Cache::lock('shipment:create:'.$orderId, 120)->block(5, fn () => $this->cancelLockedOrder($orderId, $admin, $payload));
+    }
+
+    protected function cancelLockedOrder(int $orderId, User $admin, array $payload): Order
+    {
         $reason = trim((string) ($payload['reason'] ?? ''));
         $note = trim((string) ($payload['note'] ?? ''));
 
@@ -60,7 +67,8 @@ class OrderCancellationService
             /** @var Order $order */
             $order = Order::with('orderItems')->where('id', $orderId)->lockForUpdate()->firstOrFail();
 
-            if (! $order->canBeCancelled()) {
+            if (! $order->canBeCancelled() || $order->shipment?->shipped_at !== null
+                || in_array($order->shipment?->status, ['shipped', 'delivered', 'returned'], true)) {
                 throw ValidationException::withMessages([
                     'status' => ["Order #{$order->id} with status '{$order->status}' cannot be cancelled."],
                 ]);
@@ -69,7 +77,7 @@ class OrderCancellationService
             $previousStatus = strtoupper($order->status);
 
             // Idempotent Inventory Stock Restoration
-            if ($order->stock_restored_at === null) {
+            if ($order->stock_restored_at === null && ! $order->shipment?->biteship_order_id) {
                 foreach ($order->orderItems as $item) {
                     $product = Product::where('id', $item->product_id)->lockForUpdate()->first();
                     if ($product) {
@@ -86,6 +94,7 @@ class OrderCancellationService
             $order->cancelled_by = $admin->id;
             $order->cancelled_at = now();
             $order->save();
+            $order->payment?->update(['requires_review' => $order->payment->canBeRefunded()]);
 
             // Record Audit Log
             $this->auditService->log(
@@ -97,7 +106,7 @@ class OrderCancellationService
                 note: $note ?: "Order cancelled. Reason: {$reason}.",
                 reason: $reason,
                 metadata: [
-                    'restored_stock' => true,
+                    'restored_stock' => $order->stock_restored_at !== null,
                     'stock_restored_at' => $order->stock_restored_at?->toIso8601String(),
                 ]
             );
@@ -106,6 +115,17 @@ class OrderCancellationService
         });
 
         $this->cancelExternalShipment($order, $reason);
+        if ($order->shipment?->fresh()?->status === 'cancelled') {
+            DB::transaction(function () use ($order) {
+                $locked = Order::with('orderItems')->whereKey($order->id)->lockForUpdate()->firstOrFail();
+                if ($locked->stock_restored_at === null) {
+                    foreach ($locked->orderItems as $item) {
+                        Product::whereKey($item->product_id)->lockForUpdate()->first()?->increment('stock', $item->quantity);
+                    }
+                    $locked->forceFill(['stock_restored_at' => now()])->save();
+                }
+            });
+        }
 
         return $this->queryService->getOrderDetail($order->id);
     }
@@ -135,6 +155,7 @@ class OrderCancellationService
                         'biteship_order_id' => $biteshipOrderId,
                         'message' => $result['message'] ?? null,
                     ]);
+                    CancelBiteshipShipmentJob::dispatch($order->id, $biteshipOrderId)->afterCommit();
 
                     return;
                 }

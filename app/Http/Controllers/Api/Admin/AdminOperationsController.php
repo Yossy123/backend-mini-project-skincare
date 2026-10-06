@@ -37,13 +37,14 @@ class AdminOperationsController extends Controller
         ]);
 
         $order = Order::with('payment')->findOrFail($id);
-        $amount = (float) ($request->input('amount') ?? $order->payment?->amount ?? $order->total);
+        $amount = (float) ($request->input('amount') ?? ((float) ($order->payment?->amount ?? $order->total) - (float) $order->payment?->refund_amount));
 
         $updatedOrder = $this->refundService->refundOrder(
             $order->id,
             $request->user(),
             $amount,
-            $request->input('reason')
+            $request->input('reason'),
+            $request->header('Idempotency-Key')
         );
 
         return response()->json([
@@ -109,6 +110,7 @@ class AdminOperationsController extends Controller
                 'low_stock_products' => $lowStock,
                 'out_of_stock_products' => $outOfStock,
                 'recent_refunds_count' => $recentRefunds,
+                'payments_requiring_review' => Payment::where('requires_review', true)->count(),
             ],
         ], 200);
     }

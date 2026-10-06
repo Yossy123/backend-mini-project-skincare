@@ -12,6 +12,7 @@ use App\Models\Shipment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -33,6 +34,9 @@ class AdminAdvancedOperationsTest extends TestCase
     {
         parent::setUp();
         Config::set('services.midtrans.enabled', true);
+        Config::set('services.midtrans.api_base_url', 'https://api.sandbox.midtrans.com/v2/');
+        Config::set('services.midtrans.server_key', 'test-server-key');
+        Http::preventStrayRequests();
 
         $this->admin = User::factory()->create(['role' => 'admin']);
         $this->adminToken = $this->admin->createToken('admin_token')->plainTextToken;
@@ -120,6 +124,7 @@ class AdminAdvancedOperationsTest extends TestCase
 
     public function test_admin_can_refund_paid_order_and_restore_stock(): void
     {
+        Http::fake(['api.sandbox.midtrans.com/v2/*/refund' => Http::response(['status_code' => '200', 'transaction_status' => 'refund'])]);
         Queue::fake();
 
         $this->assertEquals(20, $this->product->fresh()->stock);
@@ -161,6 +166,7 @@ class AdminAdvancedOperationsTest extends TestCase
      */
     public function test_duplicate_refund_requests_are_prevented(): void
     {
+        Http::fake(['api.sandbox.midtrans.com/v2/*/refund' => Http::response(['status_code' => '200', 'transaction_status' => 'refund'])]);
         $order = $this->createOrder('PAID', 300000, 1);
 
         // First refund succeeds

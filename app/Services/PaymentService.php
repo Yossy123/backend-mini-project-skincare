@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\OrderAuditLog;
 use App\Models\Payment;
 use App\Models\Product;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -20,6 +23,11 @@ class PaymentService
 
     public function createPayment(Order $order): Payment
     {
+        return Cache::lock('payment:create:'.$order->id, 120)->block(5, fn () => $this->createLockedPayment($order));
+    }
+
+    protected function createLockedPayment(Order $order): Payment
+    {
         if (! $this->isEnabled()) {
             throw new RuntimeException('Payment via Midtrans sementara tidak tersedia.');
         }
@@ -29,16 +37,24 @@ class PaymentService
             if (strtoupper($locked->status) !== 'PENDING_PAYMENT') {
                 throw ValidationException::withMessages(['order' => ['This order is not awaiting payment.']]);
             }
+            if ($locked->created_at->copy()->addDay()->lte(now()->addMinutes(5))) {
+                throw ValidationException::withMessages(['order' => ['The payment window is closed or too close to expiry. Please create a new order.']]);
+            }
 
             $existing = $locked->payment;
-            if ($existing?->snap_token && $existing->status === 'pending') {
+            if ($existing?->snap_token && $existing->merchant_order_id && in_array($existing->status, ['pending', 'failed'], true)) {
                 return $existing;
+            }
+            if ($existing?->snap_token && ! $existing->merchant_order_id) {
+                throw ValidationException::withMessages(['order' => ['This legacy payment requires verification by the store before retrying.']]);
             }
 
             return $locked->payment()->updateOrCreate([], [
                 'provider' => 'midtrans',
                 'status' => 'pending',
                 'amount' => (float) $locked->total,
+                'merchant_order_id' => $existing?->merchant_order_id ?? 'ORDER-'.$locked->id.'-'.Str::uuid(),
+                'expires_at' => $locked->created_at->copy()->addDay(),
             ]);
         });
 
@@ -60,16 +76,16 @@ class PaymentService
             'name' => 'Shipping',
         ];
 
-        // Midtrans order ids are globally unique per merchant account and can never be
-        // reused — even after a local database reset. Suffix a timestamp so every
-        // payment attempt gets a fresh, collision-free Snap transaction.
-        $midtransOrderId = 'ORDER-'.$order->id.'-'.now()->getTimestamp();
+        // The stored UUID identity remains stable across retries and database resets.
+        $midtransOrderId = $payment->merchant_order_id;
+        $remainingMinutes = max(1, (int) floor(now()->diffInMinutes($payment->expires_at, false)));
 
         $result = $this->midtrans->createSnapTransaction([
             'transaction_details' => ['order_id' => $midtransOrderId, 'gross_amount' => (int) round((float) $order->total)],
             'item_details' => $items,
             'customer_details' => ['first_name' => $order->user->name, 'email' => $order->user->email],
-            'expiry' => ['unit' => 'hours', 'duration' => 24],
+            'expiry' => ['start_time' => $order->created_at->copy()->timezone('Asia/Jakarta')->format('Y-m-d H:i:s O'), 'unit' => 'hours', 'duration' => 24],
+            'page_expiry' => ['unit' => 'minutes', 'duration' => $remainingMinutes],
         ]);
 
         if (empty($result['token'])) {
@@ -82,7 +98,6 @@ class PaymentService
                 $locked->update([
                     'snap_token' => $result['token'],
                     'redirect_url' => $result['redirect_url'] ?? null,
-                    'expires_at' => now()->addDay(),
                 ]);
             }
 
@@ -101,12 +116,28 @@ class PaymentService
             throw ValidationException::withMessages(['notification' => ['Invalid Midtrans notification.']]);
         }
 
-        // Accept both legacy ("ORDER-7") and suffixed ("ORDER-7-1757299999") ids.
-        if (! preg_match('/^ORDER-(\d+)/', (string) $notification['order_id'], $matches)) {
-            throw ValidationException::withMessages(['order_id' => ['Order not found.']]);
-        }
+        return $this->applyVerifiedNotification($notification);
+    }
 
-        $orderId = (int) $matches[1];
+    /** Apply a response obtained directly from the authenticated gateway API. */
+    public function synchronizePayment(Payment $payment): ?Payment
+    {
+        if (! $payment->merchant_order_id || ! $this->isEnabled()) {
+            return null;
+        }
+        $notification = $this->midtrans->getTransactionStatus($payment->merchant_order_id);
+
+        return $notification ? $this->applyVerifiedNotification($notification) : null;
+    }
+
+    protected function applyVerifiedNotification(array $notification): Payment
+    {
+        $identity = (string) ($notification['order_id'] ?? '');
+        $registered = Payment::where('merchant_order_id', $identity)->first();
+        if (! $registered) {
+            throw ValidationException::withMessages(['order_id' => ['Payment transaction not found.']]);
+        }
+        $orderId = $registered->order_id;
 
         return DB::transaction(function () use ($notification, $orderId) {
             $order = Order::with(['payment', 'orderItems'])->lockForUpdate()->find($orderId);
@@ -119,8 +150,15 @@ class PaymentService
                 throw ValidationException::withMessages(['gross_amount' => ['Payment amount does not match the order total.']]);
             }
 
-            $status = strtolower((string) $notification['transaction_status']);
-            $payment = $order->payment()->firstOrCreate([], ['provider' => 'midtrans', 'amount' => $order->total, 'status' => 'pending']);
+            $status = strtolower((string) ($notification['transaction_status'] ?? ''));
+            $payment = $order->payment;
+            if (! $payment || $payment->merchant_order_id !== (string) $notification['order_id']) {
+                throw ValidationException::withMessages(['order_id' => ['Payment transaction does not match.']]);
+            }
+            // Financial success and refunds cannot be overwritten by delayed attempt failures.
+            if (in_array($payment->status, ['paid', 'refunded', 'partially_refunded'], true)) {
+                return $payment;
+            }
             $updates = [
                 'transaction_id' => $notification['transaction_id'] ?? $payment->transaction_id,
                 'payment_type' => $notification['payment_type'] ?? $payment->payment_type,
@@ -132,6 +170,15 @@ class PaymentService
                 $updates['paid_at'] = $payment->paid_at ?? now();
                 if (strtoupper($order->status) === 'PENDING_PAYMENT') {
                     $order->update(['status' => 'PAID']);
+                } elseif (in_array(strtoupper($order->status), ['EXPIRED', 'CANCELLED'], true)) {
+                    $updates['requires_review'] = true;
+                    OrderAuditLog::create([
+                        'order_id' => $order->id,
+                        'action' => 'LATE_PAYMENT_REQUIRES_REVIEW',
+                        'previous_status' => $order->status,
+                        'new_status' => $order->status,
+                        'note' => 'Payment received after order closure. Do not fulfill restored stock; verify and refund this payment.',
+                    ]);
                 }
             } elseif (in_array($status, ['expire', 'expired'], true)) {
                 $updates['status'] = 'expired';

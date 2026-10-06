@@ -29,6 +29,23 @@ class OrderExpirationService
 
         foreach ($pendingOrders as $order) {
             try {
+                $payment = $order->payment;
+                if ($payment?->snap_token) {
+                    // A callback may be delayed. Keep inventory reserved until the gateway confirms a terminal outcome.
+                    app(PaymentService::class)->synchronizePayment($payment);
+                    if (strtoupper($order->fresh()->status) !== 'PENDING_PAYMENT') {
+                        if ($order->fresh()->status === 'EXPIRED') {
+                            $expiredCount++;
+                        }
+
+                        continue;
+                    }
+                    if (! app(MidtransService::class)->cancelSnapSession($payment->snap_token)) {
+                        $payment->update(['requires_review' => true]);
+
+                        continue;
+                    }
+                }
                 DB::transaction(function () use ($order, $hoursTimeout) {
                     /** @var Order $lockedOrder */
                     $lockedOrder = Order::with('orderItems')->where('id', $order->id)->lockForUpdate()->first();
@@ -56,6 +73,7 @@ class OrderExpirationService
                     $lockedOrder->cancellation_note = 'Order expired automatically due to payment window timeout.';
                     $lockedOrder->cancelled_at = now();
                     $lockedOrder->save();
+                    $lockedOrder->payment?->update(['status' => 'expired', 'requires_review' => false]);
 
                     // Record Audit Log
                     OrderAuditLog::create([

@@ -54,6 +54,8 @@ class OrderResource extends JsonResource
                     'status' => $this->payment->status,
                     'amount' => (float) $this->payment->amount,
                     'expires_at' => $this->payment->expires_at?->toIso8601String(),
+                    'requires_review' => (bool) $this->payment->requires_review,
+                    'refund_amount' => (float) $this->payment->refund_amount,
                 ] : null;
             }),
             'created_at' => $this->created_at?->toIso8601String(),
