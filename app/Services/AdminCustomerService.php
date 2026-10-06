@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\CustomerAuditLog;
 use App\Models\Order;
 use App\Models\User;
@@ -15,11 +17,11 @@ class AdminCustomerService
      * Authoritative paid statuses matching Revenue analytics rules.
      */
     public const PAID_STATUSES = [
-        'PAID',
-        'PROCESSING',
-        'SHIPPED',
-        'DELIVERED',
-        'COMPLETED',
+        OrderStatus::Paid->value,
+        OrderStatus::Processing->value,
+        OrderStatus::Shipped->value,
+        OrderStatus::Delivered->value,
+        OrderStatus::Completed->value,
     ];
 
     /**
@@ -115,8 +117,8 @@ class AdminCustomerService
         $ordersQuery = Order::where('user_id', $customer->id);
 
         $totalOrders = (clone $ordersQuery)->count();
-        $completedOrders = (clone $ordersQuery)->whereIn('status', ['COMPLETED', 'DELIVERED'])->count();
-        $cancelledOrders = (clone $ordersQuery)->whereIn('status', ['CANCELLED', 'EXPIRED'])->count();
+        $completedOrders = (clone $ordersQuery)->whereIn('status', [OrderStatus::Completed->value, OrderStatus::Delivered->value])->count();
+        $cancelledOrders = (clone $ordersQuery)->whereIn('status', [OrderStatus::Cancelled->value, OrderStatus::Expired->value])->count();
 
         $paidOrders = (clone $ordersQuery)->whereIn('status', self::PAID_STATUSES);
         $paidOrdersCount = (clone $paidOrders)->count();
@@ -141,7 +143,7 @@ class AdminCustomerService
                     'status' => strtoupper($order->status),
                     'total' => (float) $order->total,
                     'shipping_courier' => $order->shipping_courier,
-                    'payment_status' => $order->payment?->status ?? 'pending',
+                    'payment_status' => $order->payment?->status ?? PaymentStatus::Pending->value,
                     'payment_provider' => $order->payment?->provider ?? 'midtrans',
                     'tracking_number' => $order->shipment?->tracking_number,
                 ];

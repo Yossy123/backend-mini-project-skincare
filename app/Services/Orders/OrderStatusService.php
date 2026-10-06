@@ -2,6 +2,8 @@
 
 namespace App\Services\Orders;
 
+use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use App\Jobs\CreateBiteshipShipmentJob;
 use App\Models\Order;
 use App\Models\Shipment;
@@ -36,7 +38,7 @@ class OrderStatusService
             }
 
             $previousStatus = strtoupper($order->status);
-            $order->status = 'PROCESSING';
+            $order->status = OrderStatus::Processing->value;
             $order->save();
 
             // Record Audit Log
@@ -45,7 +47,7 @@ class OrderStatusService
                 adminId: $admin->id,
                 action: 'ORDER_PROCESSING',
                 previousStatus: $previousStatus,
-                newStatus: 'PROCESSING',
+                newStatus: OrderStatus::Processing->value,
                 note: 'Admin verified payment and initiated order fulfillment.'
             );
 
@@ -91,7 +93,7 @@ class OrderStatusService
             $service = strtoupper(trim((string) ($payload['service'] ?? $order->shipping_service)));
 
             $previousStatus = strtoupper($order->status);
-            $order->status = 'SHIPPED';
+            $order->status = OrderStatus::Shipped->value;
             $order->shipping_courier = $courier;
             $order->shipping_service = $service;
             $order->save();
@@ -103,7 +105,7 @@ class OrderStatusService
                     'courier' => $courier,
                     'service' => $service,
                     'tracking_number' => $trackingNumber,
-                    'status' => 'shipped',
+                    'status' => ShipmentStatus::Shipped->value,
                     'shipped_at' => now(),
                 ]
             );
@@ -114,7 +116,7 @@ class OrderStatusService
                 adminId: $admin->id,
                 action: 'ORDER_SHIPPED',
                 previousStatus: $previousStatus,
-                newStatus: 'SHIPPED',
+                newStatus: OrderStatus::Shipped->value,
                 note: "Shipped via {$courier} ({$service}) with Tracking #{$trackingNumber}.",
                 metadata: [
                     'courier' => $courier,
@@ -147,13 +149,13 @@ class OrderStatusService
             }
 
             $previousStatus = strtoupper($order->status);
-            $order->status = 'DELIVERED';
+            $order->status = OrderStatus::Delivered->value;
             $order->save();
 
             // Update shipment delivered timestamp
             $shipment = $order->shipment;
             if ($shipment) {
-                $shipment->status = 'delivered';
+                $shipment->status = ShipmentStatus::Delivered->value;
                 $shipment->delivered_at = now();
                 $shipment->save();
             }
@@ -164,7 +166,7 @@ class OrderStatusService
                 adminId: $admin->id,
                 action: 'ORDER_DELIVERED',
                 previousStatus: $previousStatus,
-                newStatus: 'DELIVERED',
+                newStatus: OrderStatus::Delivered->value,
                 note: 'Package confirmed delivered to customer destination.'
             );
 
@@ -192,7 +194,7 @@ class OrderStatusService
             }
 
             $previousStatus = strtoupper($order->status);
-            $order->status = 'COMPLETED';
+            $order->status = OrderStatus::Completed->value;
             $order->save();
 
             // Record Audit Log
@@ -201,7 +203,7 @@ class OrderStatusService
                 adminId: $admin->id,
                 action: 'ORDER_COMPLETED',
                 previousStatus: $previousStatus,
-                newStatus: 'COMPLETED',
+                newStatus: OrderStatus::Completed->value,
                 note: 'Order fulfilled and marked as completed.'
             );
 

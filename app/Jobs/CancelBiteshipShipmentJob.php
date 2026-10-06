@@ -3,6 +3,8 @@
 namespace App\Jobs;
 
 use App\Contracts\ShippingProviderInterface;
+use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Shipment;
@@ -33,7 +35,7 @@ class CancelBiteshipShipmentJob implements ShouldQueue
     public function handle(ShippingProviderInterface $provider): void
     {
         $shipment = Shipment::where('order_id', $this->orderId)->where('biteship_order_id', $this->bookingId)->first();
-        if ($shipment?->status !== 'cancelled') {
+        if ($shipment?->status !== ShipmentStatus::Cancelled->value) {
             $result = $provider->cancelShipment($this->bookingId, 'others');
             if (! ($result['success'] ?? false)) {
                 throw new \RuntimeException('Biteship cancellation was not confirmed.');
@@ -45,10 +47,10 @@ class CancelBiteshipShipmentJob implements ShouldQueue
             if (! $order || ! $shipment) {
                 return;
             }
-            $mayRestore = in_array($shipment->status, ['pending', 'processing', 'cancelled'], true)
+            $mayRestore = in_array($shipment->status, [ShipmentStatus::Pending->value, ShipmentStatus::Processing->value, ShipmentStatus::Cancelled->value], true)
                 && $shipment->shipped_at === null
-                && in_array($order->status, ['CANCELLED', 'EXPIRED'], true);
-            $shipment->update(['status' => 'cancelled']);
+                && in_array($order->status, [OrderStatus::Cancelled->value, OrderStatus::Expired->value], true);
+            $shipment->update(['status' => ShipmentStatus::Cancelled->value]);
             if ($mayRestore && $order->stock_restored_at === null) {
                 foreach ($order->orderItems as $item) {
                     Product::whereKey($item->product_id)->lockForUpdate()->first()?->increment('stock', $item->quantity);

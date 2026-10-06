@@ -2,6 +2,8 @@
 
 namespace App\Services\Shipping;
 
+use App\Enums\ShipmentStatus;
+
 class BiteshipResponseMapper
 {
     /**
@@ -12,11 +14,11 @@ class BiteshipResponseMapper
         $status = strtolower(trim($status));
 
         return match ($status) {
-            'delivered' => 'delivered',
-            'dropping_off', 'picked', 'picking_up', 'in_transit', 'on_hold', 'courier_assigned' => 'shipped',
-            'cancelled', 'rejected' => 'cancelled',
-            'returned', 'returning' => 'returned',
-            'allocated', 'confirmed', 'placed', 'scheduled' => 'processing',
+            'delivered' => ShipmentStatus::Delivered->value,
+            'dropping_off', 'picked', 'picking_up', 'in_transit', 'on_hold', 'courier_assigned' => ShipmentStatus::Shipped->value,
+            'cancelled', 'rejected' => ShipmentStatus::Cancelled->value,
+            'returned', 'returning' => ShipmentStatus::Returned->value,
+            'allocated', 'confirmed', 'placed', 'scheduled' => ShipmentStatus::Processing->value,
             default => $status,
         };
     }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Orders;
 
+use App\Enums\ShipmentStatus;
 use App\Models\Address;
 use App\Models\Order;
 use App\Models\Shipment;
@@ -104,7 +105,7 @@ class OrderShipmentService
             'courier' => strtoupper($courier),
             'service' => $service,
             'tracking_number' => null,
-            'status' => 'pending',
+            'status' => ShipmentStatus::Pending->value,
         ]);
     }
 }

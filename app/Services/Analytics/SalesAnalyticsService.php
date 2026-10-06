@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -14,11 +15,11 @@ class SalesAnalyticsService
      * Excludes: PENDING_PAYMENT, CANCELLED, EXPIRED.
      */
     public const VALID_PAID_STATUSES = [
-        'PAID',
-        'PROCESSING',
-        'SHIPPED',
-        'DELIVERED',
-        'COMPLETED',
+        OrderStatus::Paid->value,
+        OrderStatus::Processing->value,
+        OrderStatus::Shipped->value,
+        OrderStatus::Delivered->value,
+        OrderStatus::Completed->value,
     ];
 
     /**

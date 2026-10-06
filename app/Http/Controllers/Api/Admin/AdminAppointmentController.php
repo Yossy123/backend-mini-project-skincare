@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Service;
@@ -76,14 +77,14 @@ class AdminAppointmentController extends Controller
     public function updateStatus(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
-            'status' => 'required|in:pending,confirmed,checked_in,in_progress,completed,cancelled,no_show',
+            'status' => 'required|in:'.AppointmentStatus::validationList(),
             'notes' => 'nullable|string|max:1000',
             'cancellation_reason' => 'nullable|string|max:1000',
         ]);
 
         $appointment = Appointment::findOrFail($id);
 
-        if ($validated['status'] === 'cancelled' && ! empty($validated['cancellation_reason'])) {
+        if ($validated['status'] === AppointmentStatus::Cancelled->value && ! empty($validated['cancellation_reason'])) {
             $appointment->cancellation_reason = $validated['cancellation_reason'];
         }
 

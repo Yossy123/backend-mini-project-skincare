@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\OrderStatus;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,12 +12,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Order extends Model
 {
-    /** Canonical order lifecycle statuses (UPPERCASE, persisted as-is). */
-    public const STATUS_PENDING_PAYMENT = 'PENDING_PAYMENT';
-    public const STATUS_PAID = 'PAID';
-    public const STATUS_PROCESSING = 'PROCESSING';
-    public const STATUS_SHIPPED = 'SHIPPED';
-    public const STATUS_DELIVERED = 'DELIVERED';
+    /** Aliases of {@see OrderStatus} kept for existing callers (UPPERCASE, persisted as-is). */
+    public const STATUS_PENDING_PAYMENT = OrderStatus::PendingPayment->value;
+    public const STATUS_PAID = OrderStatus::Paid->value;
+    public const STATUS_PROCESSING = OrderStatus::Processing->value;
+    public const STATUS_SHIPPED = OrderStatus::Shipped->value;
+    public const STATUS_DELIVERED = OrderStatus::Delivered->value;
 
     /** @use HasFactory<OrderFactory> */
     use HasFactory;

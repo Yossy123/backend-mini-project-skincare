@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
@@ -39,7 +40,7 @@ class AdminDashboardService
         $todayOrders = Order::whereBetween('created_at', [$todayStart, $todayEnd])->count();
 
         // 3. Operational Indicators
-        $pendingPaymentsCount = Order::where('status', 'PENDING_PAYMENT')->count();
+        $pendingPaymentsCount = Order::where('status', OrderStatus::PendingPayment->value)->count();
         $lowStockCount = Product::where('is_active', true)->where('stock', '<=', 5)->count();
 
         // 4. Quick 7-day Sales Sparkline & Status Distribution

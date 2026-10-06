@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
 use App\Models\Product;
@@ -33,8 +35,8 @@ class OrderExpirationService
                 if ($payment?->snap_token) {
                     // A callback may be delayed. Keep inventory reserved until the gateway confirms a terminal outcome.
                     app(PaymentService::class)->synchronizePayment($payment);
-                    if (strtoupper($order->fresh()->status) !== 'PENDING_PAYMENT') {
-                        if ($order->fresh()->status === 'EXPIRED') {
+                    if (strtoupper($order->fresh()->status) !== OrderStatus::PendingPayment->value) {
+                        if ($order->fresh()->status === OrderStatus::Expired->value) {
                             $expiredCount++;
                         }
 
@@ -50,7 +52,7 @@ class OrderExpirationService
                     /** @var Order $lockedOrder */
                     $lockedOrder = Order::with('orderItems')->where('id', $order->id)->lockForUpdate()->first();
 
-                    if (! $lockedOrder || ! in_array(strtoupper($lockedOrder->status), ['PENDING_PAYMENT'], true)) {
+                    if (! $lockedOrder || ! in_array(strtoupper($lockedOrder->status), [OrderStatus::PendingPayment->value], true)) {
                         return;
                     }
 
@@ -68,19 +70,19 @@ class OrderExpirationService
                     }
 
                     // Update order state to EXPIRED
-                    $lockedOrder->status = 'EXPIRED';
+                    $lockedOrder->status = OrderStatus::Expired->value;
                     $lockedOrder->cancellation_reason = 'payment_issue';
                     $lockedOrder->cancellation_note = 'Order expired automatically due to payment window timeout.';
                     $lockedOrder->cancelled_at = now();
                     $lockedOrder->save();
-                    $lockedOrder->payment?->update(['status' => 'expired', 'requires_review' => false]);
+                    $lockedOrder->payment?->update(['status' => PaymentStatus::Expired->value, 'requires_review' => false]);
 
                     // Record Audit Log
                     OrderAuditLog::create([
                         'order_id' => $lockedOrder->id,
                         'action' => 'ORDER_EXPIRED',
                         'previous_status' => $previousStatus,
-                        'new_status' => 'EXPIRED',
+                        'new_status' => OrderStatus::Expired->value,
                         'note' => 'Automatic background job expired order after payment timeout.',
                         'metadata' => [
                             'stock_restored' => true,

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\ShippingProviderInterface;
+use App\Enums\ShipmentStatus;
 use App\Models\Shipment;
 use App\Services\Shipping\BiteshipWebhookService;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +22,7 @@ class ShipmentTrackingSyncService
     public function syncActiveShipments(): int
     {
         $activeShipments = Shipment::with('order')
-            ->whereIn('status', ['processing', 'shipped'])
+            ->whereIn('status', [ShipmentStatus::Processing->value, ShipmentStatus::Shipped->value])
             ->where(function ($query) {
                 $query->whereNotNull('tracking_number')->orWhereNotNull('biteship_tracking_id')->orWhereNotNull('biteship_waybill_id');
             })
@@ -44,7 +45,7 @@ class ShipmentTrackingSyncService
                 );
 
                 $status = strtolower($tracking['status'] ?? '');
-                if (in_array($status, ['processing', 'shipped', 'delivered', 'cancelled', 'returned'], true)) {
+                if (in_array($status, [ShipmentStatus::Processing->value, ShipmentStatus::Shipped->value, ShipmentStatus::Delivered->value, ShipmentStatus::Cancelled->value, ShipmentStatus::Returned->value], true)) {
                     app(BiteshipWebhookService::class)->processWebhookPayload([
                         'order_id' => $shipment->biteship_order_id,
                         'tracking_id' => $tracking['tracking_id'] ?? $shipment->biteship_tracking_id,

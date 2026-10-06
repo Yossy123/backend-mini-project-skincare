@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Payment;
@@ -85,8 +86,8 @@ class AdminOperationsController extends Controller
      */
     public function alerts(): JsonResponse
     {
-        $unprocessedPaid = Order::where('status', 'PAID')->count();
-        $stalePending = Order::where('status', 'PENDING_PAYMENT')
+        $unprocessedPaid = Order::where('status', OrderStatus::Paid->value)->count();
+        $stalePending = Order::where('status', OrderStatus::PendingPayment->value)
             ->where('created_at', '<=', now()->subHours(24))
             ->count();
 

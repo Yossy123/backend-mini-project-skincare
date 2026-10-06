@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 
@@ -28,14 +29,14 @@ class OrderAnalyticsService
             ->keyBy('status');
 
         $allStatuses = [
-            'PENDING_PAYMENT',
-            'PAID',
-            'PROCESSING',
-            'SHIPPED',
-            'DELIVERED',
-            'COMPLETED',
-            'CANCELLED',
-            'EXPIRED',
+            OrderStatus::PendingPayment->value,
+            OrderStatus::Paid->value,
+            OrderStatus::Processing->value,
+            OrderStatus::Shipped->value,
+            OrderStatus::Delivered->value,
+            OrderStatus::Completed->value,
+            OrderStatus::Cancelled->value,
+            OrderStatus::Expired->value,
         ];
 
         $totalOrdersInPeriod = Order::whereBetween('created_at', [$start, $end])->count();

@@ -2,6 +2,8 @@
 
 namespace App\Services\Shipping;
 
+use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
 use App\Models\Shipment;
@@ -149,7 +151,7 @@ class BiteshipWebhookService
             $oldShipmentStatus = strtolower($shipment->status);
 
             // Terminal states cannot regress
-            if (in_array($oldShipmentStatus, ['delivered', 'cancelled', 'returned'], true)) {
+            if (in_array($oldShipmentStatus, [ShipmentStatus::Delivered->value, ShipmentStatus::Cancelled->value, ShipmentStatus::Returned->value], true)) {
                 if ($oldShipmentStatus === $newStatus) {
                     $shipment->update([
                         'biteship_order_id' => $shipment->biteship_order_id ?: ($normalized['order_id'] ?? null),
@@ -163,10 +165,10 @@ class BiteshipWebhookService
             }
 
             $statusRank = [
-                'pending' => 0,
-                'processing' => 1,
-                'shipped' => 2,
-                'delivered' => 3,
+                ShipmentStatus::Pending->value => 0,
+                ShipmentStatus::Processing->value => 1,
+                ShipmentStatus::Shipped->value => 2,
+                ShipmentStatus::Delivered->value => 3,
             ];
 
             // If new status is regular progression, check rank
@@ -175,7 +177,7 @@ class BiteshipWebhookService
                 if ($statusRank[$newStatus] < $oldRank) {
                     return;
                 }
-            } elseif (! in_array($newStatus, ['cancelled', 'returned'], true)) {
+            } elseif (! in_array($newStatus, [ShipmentStatus::Cancelled->value, ShipmentStatus::Returned->value], true)) {
                 return;
             }
 
@@ -198,11 +200,11 @@ class BiteshipWebhookService
                 'tracking_number' => $normalized['waybill_id'] ?: $shipment->tracking_number,
             ];
 
-            if ($newStatus === 'shipped' && empty($shipment->shipped_at)) {
+            if ($newStatus === ShipmentStatus::Shipped->value && empty($shipment->shipped_at)) {
                 $shipmentUpdates['shipped_at'] = now();
             }
 
-            if ($newStatus === 'delivered' && empty($shipment->delivered_at)) {
+            if ($newStatus === ShipmentStatus::Delivered->value && empty($shipment->delivered_at)) {
                 $shipmentUpdates['delivered_at'] = now();
             }
 
@@ -211,7 +213,7 @@ class BiteshipWebhookService
 
             if ($order) {
                 $orderStatus = strtoupper($order->status);
-                if ($newStatus === 'returned') {
+                if ($newStatus === ShipmentStatus::Returned->value) {
                     $order->payment?->update(['requires_review' => true]);
                     OrderAuditLog::create([
                         'order_id' => $order->id,
@@ -222,8 +224,8 @@ class BiteshipWebhookService
                     ]);
                 }
 
-                if ($newStatus === 'delivered' && in_array($orderStatus, ['SHIPPED', 'PROCESSING', 'PAID'], true)) {
-                    $order->status = 'DELIVERED';
+                if ($newStatus === ShipmentStatus::Delivered->value && in_array($orderStatus, [OrderStatus::Shipped->value, OrderStatus::Processing->value, OrderStatus::Paid->value], true)) {
+                    $order->status = OrderStatus::Delivered->value;
                     $order->save();
 
                     OrderAuditLog::create([
@@ -231,7 +233,7 @@ class BiteshipWebhookService
                         'admin_id' => null,
                         'action' => 'SHIPMENT_DELIVERED',
                         'previous_status' => $orderStatus,
-                        'new_status' => 'DELIVERED',
+                        'new_status' => OrderStatus::Delivered->value,
                         'note' => 'Biteship webhook confirmed delivery to customer.',
                         'metadata' => [
                             'courier' => $shipment->courier,
@@ -239,16 +241,16 @@ class BiteshipWebhookService
                             'telemetry' => $normalized,
                         ],
                     ]);
-                } elseif ($newStatus === 'shipped' && $orderStatus === 'PROCESSING') {
-                    $order->status = 'SHIPPED';
+                } elseif ($newStatus === ShipmentStatus::Shipped->value && $orderStatus === OrderStatus::Processing->value) {
+                    $order->status = OrderStatus::Shipped->value;
                     $order->save();
 
                     OrderAuditLog::create([
                         'order_id' => $order->id,
                         'admin_id' => null,
                         'action' => 'SHIPMENT_DISPATCHED',
-                        'previous_status' => 'PROCESSING',
-                        'new_status' => 'SHIPPED',
+                        'previous_status' => OrderStatus::Processing->value,
+                        'new_status' => OrderStatus::Shipped->value,
                         'note' => 'Biteship webhook confirmed shipment picked up by courier.',
                         'metadata' => [
                             'courier' => $shipment->courier,
@@ -256,7 +258,7 @@ class BiteshipWebhookService
                             'telemetry' => $normalized,
                         ],
                     ]);
-                } elseif ($newStatus === 'cancelled' && ! in_array($orderStatus, ['DELIVERED', 'COMPLETED', 'CANCELLED'], true)) {
+                } elseif ($newStatus === ShipmentStatus::Cancelled->value && ! in_array($orderStatus, [OrderStatus::Delivered->value, OrderStatus::Completed->value, OrderStatus::Cancelled->value], true)) {
                     // Courier cancellation does not cancel the purchase or prove physical stock was returned.
                     $order->payment?->update(['requires_review' => true]);
 

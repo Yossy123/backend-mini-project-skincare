@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\PaymentStatus;
 use Database\Factories\PaymentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -78,7 +79,7 @@ class Payment extends Model
      */
     public function isRefunded(): bool
     {
-        return $this->status === 'refunded' || (float) $this->refund_amount >= (float) $this->amount;
+        return $this->status === PaymentStatus::Refunded->value || (float) $this->refund_amount >= (float) $this->amount;
     }
 
     /**
@@ -86,7 +87,7 @@ class Payment extends Model
      */
     public function canBeRefunded(): bool
     {
-        $eligibleStatuses = ['settlement', 'capture', 'success', 'paid', 'partially_refunded'];
+        $eligibleStatuses = ['settlement', 'capture', 'success', PaymentStatus::Paid->value, PaymentStatus::PartiallyRefunded->value];
 
         return in_array(strtolower($this->status), $eligibleStatuses, true) && ! $this->isRefunded();
     }

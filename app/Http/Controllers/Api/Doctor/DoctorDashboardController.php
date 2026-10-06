@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Doctor;
 
+use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Doctor;
@@ -57,26 +58,26 @@ class DoctorDashboardController extends Controller
         // Upcoming appointments (future dates)
         $upcomingAppointments = Appointment::where('doctor_id', $doctor->id)
             ->whereDate('appointment_date', '>', $today)
-            ->whereNotIn('status', ['cancelled', 'no_show'])
+            ->whereNotIn('status', AppointmentStatus::releasedValues())
             ->with(['patient', 'service'])
             ->orderBy('appointment_date')
             ->orderBy('start_time')
             ->limit(10)
             ->get();
 
-        $waitingCount = $todayAppointments->where('status', 'checked_in')->count();
-        $inProgressCount = $todayAppointments->where('status', 'in_progress')->count();
-        $completedToday = $todayAppointments->where('status', 'completed')->count();
+        $waitingCount = $todayAppointments->where('status', AppointmentStatus::CheckedIn->value)->count();
+        $inProgressCount = $todayAppointments->where('status', AppointmentStatus::InProgress->value)->count();
+        $completedToday = $todayAppointments->where('status', AppointmentStatus::Completed->value)->count();
         $totalToday = $todayAppointments->count();
 
         $totalUpcoming = Appointment::where('doctor_id', $doctor->id)
             ->whereDate('appointment_date', '>', $today)
-            ->whereNotIn('status', ['cancelled', 'no_show'])
+            ->whereNotIn('status', AppointmentStatus::releasedValues())
             ->count();
 
         $monthPatientCount = Appointment::where('doctor_id', $doctor->id)
             ->where('appointment_date', '>=', $startOfMonth)
-            ->where('status', 'completed')
+            ->where('status', AppointmentStatus::Completed->value)
             ->distinct('patient_id')
             ->count('patient_id');
 
@@ -166,7 +167,7 @@ class DoctorDashboardController extends Controller
         // Get past appointments of this patient for medical history context
         $patientHistory = Appointment::where('patient_id', $appointment->patient_id)
             ->where('id', '!=', $appointment->id)
-            ->where('status', 'completed')
+            ->where('status', AppointmentStatus::Completed->value)
             ->with(['service', 'doctor'])
             ->orderByDesc('appointment_date')
             ->get();
@@ -188,7 +189,7 @@ class DoctorDashboardController extends Controller
         $doctor = $this->getDoctor($request);
 
         $validated = $request->validate([
-            'status' => 'required|in:checked_in,in_progress,completed,no_show,cancelled',
+            'status' => 'required|in:'.AppointmentStatus::validationList([AppointmentStatus::CheckedIn, AppointmentStatus::InProgress, AppointmentStatus::Completed, AppointmentStatus::NoShow, AppointmentStatus::Cancelled]),
             'notes' => 'nullable|string|max:1000',
         ]);
 
@@ -236,7 +237,7 @@ class DoctorDashboardController extends Controller
         ]);
 
         if (! empty($validated['mark_completed'])) {
-            $appointment->logStatusChange('completed', $request->user()->id, 'Konsultasi dan rekam medis diselesaikan oleh dokter.');
+            $appointment->logStatusChange(AppointmentStatus::Completed->value, $request->user()->id, 'Konsultasi dan rekam medis diselesaikan oleh dokter.');
         }
 
         return response()->json([

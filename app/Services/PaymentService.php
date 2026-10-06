@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
 use App\Models\Payment;
@@ -34,7 +36,7 @@ class PaymentService
 
         $payment = DB::transaction(function () use ($order) {
             $locked = Order::with(['orderItems', 'payment'])->lockForUpdate()->findOrFail($order->id);
-            if (strtoupper($locked->status) !== 'PENDING_PAYMENT') {
+            if (strtoupper($locked->status) !== OrderStatus::PendingPayment->value) {
                 throw ValidationException::withMessages(['order' => ['This order is not awaiting payment.']]);
             }
             if ($locked->created_at->copy()->addDay()->lte(now()->addMinutes(5))) {
@@ -42,7 +44,7 @@ class PaymentService
             }
 
             $existing = $locked->payment;
-            if ($existing?->snap_token && $existing->merchant_order_id && in_array($existing->status, ['pending', 'failed'], true)) {
+            if ($existing?->snap_token && $existing->merchant_order_id && in_array($existing->status, [PaymentStatus::Pending->value, PaymentStatus::Failed->value], true)) {
                 return $existing;
             }
             if ($existing?->snap_token && ! $existing->merchant_order_id) {
@@ -51,7 +53,7 @@ class PaymentService
 
             return $locked->payment()->updateOrCreate([], [
                 'provider' => 'midtrans',
-                'status' => 'pending',
+                'status' => PaymentStatus::Pending->value,
                 'amount' => (float) $locked->total,
                 'merchant_order_id' => $existing?->merchant_order_id ?? 'ORDER-'.$locked->id.'-'.Str::uuid(),
                 'expires_at' => $locked->created_at->copy()->addDay(),
@@ -156,7 +158,7 @@ class PaymentService
                 throw ValidationException::withMessages(['order_id' => ['Payment transaction does not match.']]);
             }
             // Financial success and refunds cannot be overwritten by delayed attempt failures.
-            if (in_array($payment->status, ['paid', 'refunded', 'partially_refunded'], true)) {
+            if (in_array($payment->status, [PaymentStatus::Paid->value, PaymentStatus::Refunded->value, PaymentStatus::PartiallyRefunded->value], true)) {
                 return $payment;
             }
             $updates = [
@@ -166,11 +168,11 @@ class PaymentService
             ];
 
             if (in_array($status, ['capture', 'settlement'], true) && strtolower((string) ($notification['fraud_status'] ?? 'accept')) === 'accept') {
-                $updates['status'] = 'paid';
+                $updates['status'] = PaymentStatus::Paid->value;
                 $updates['paid_at'] = $payment->paid_at ?? now();
-                if (strtoupper($order->status) === 'PENDING_PAYMENT') {
-                    $order->update(['status' => 'PAID']);
-                } elseif (in_array(strtoupper($order->status), ['EXPIRED', 'CANCELLED'], true)) {
+                if (strtoupper($order->status) === OrderStatus::PendingPayment->value) {
+                    $order->update(['status' => OrderStatus::Paid->value]);
+                } elseif (in_array(strtoupper($order->status), [OrderStatus::Expired->value, OrderStatus::Cancelled->value], true)) {
                     $updates['requires_review'] = true;
                     OrderAuditLog::create([
                         'order_id' => $order->id,
@@ -181,20 +183,20 @@ class PaymentService
                     ]);
                 }
             } elseif (in_array($status, ['expire', 'expired'], true)) {
-                $updates['status'] = 'expired';
-                if (strtoupper($order->status) === 'PENDING_PAYMENT') {
-                    $order->update(['status' => 'EXPIRED']);
+                $updates['status'] = PaymentStatus::Expired->value;
+                if (strtoupper($order->status) === OrderStatus::PendingPayment->value) {
+                    $order->update(['status' => OrderStatus::Expired->value]);
                     $this->restoreReservedStock($order);
                 }
             } elseif ($status === 'deny') {
                 // A denied attempt (e.g. insufficient e-wallet balance or a declined
                 // card) must not cancel the order: Snap allows multiple payment
                 // attempts per order id until it is finally paid or expired.
-                $updates['status'] = 'failed';
+                $updates['status'] = PaymentStatus::Failed->value;
             } elseif ($status === 'cancel') {
-                $updates['status'] = 'cancelled';
-                if (strtoupper($order->status) === 'PENDING_PAYMENT') {
-                    $order->update(['status' => 'CANCELLED']);
+                $updates['status'] = PaymentStatus::Cancelled->value;
+                if (strtoupper($order->status) === OrderStatus::PendingPayment->value) {
+                    $order->update(['status' => OrderStatus::Cancelled->value]);
                     $this->restoreReservedStock($order);
                 }
             }

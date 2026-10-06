@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CustomerAppointmentResource;
 use App\Models\Appointment;
@@ -76,7 +77,7 @@ class MyAppointmentsController extends Controller
             })
             ->firstOrFail();
 
-        if (in_array($appointment->status, ['completed', 'cancelled', 'in_progress'])) {
+        if (in_array($appointment->status, AppointmentStatus::notCancellableByPatientValues(), true)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Appointment dengan status '.$appointment->status.' tidak dapat dibatalkan.',
@@ -84,7 +85,7 @@ class MyAppointmentsController extends Controller
         }
 
         $appointment->cancellation_reason = $request->input('reason', 'Dibatalkan oleh pasien');
-        $appointment->logStatusChange('cancelled', $user->id, 'Pembatalan oleh pasien: '.$appointment->cancellation_reason);
+        $appointment->logStatusChange(AppointmentStatus::Cancelled->value, $user->id, 'Pembatalan oleh pasien: '.$appointment->cancellation_reason);
 
         return response()->json([
             'success' => true,

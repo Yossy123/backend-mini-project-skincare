@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\ShipmentStatus;
 use App\Jobs\SendCustomerNotificationJob;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
@@ -127,10 +130,10 @@ class PaymentRefundService
             }
 
             $isFullRefund = abs($amount - $maxRefundAmount) < 0.01;
-            $hasLeftWarehouse = in_array(strtoupper($order->status), ['SHIPPED', 'DELIVERED', 'COMPLETED'], true)
+            $hasLeftWarehouse = in_array(strtoupper($order->status), OrderStatus::leftWarehouseValues(), true)
                 || $order->shipment?->shipped_at !== null
                 || in_array(strtolower((string) $order->shipment?->status), ['shipped', 'delivered', 'returned'], true);
-            if ($isFullRefund && ! $hasLeftWarehouse && $order->shipment?->biteship_order_id && $order->shipment->status !== 'cancelled') {
+            if ($isFullRefund && ! $hasLeftWarehouse && $order->shipment?->biteship_order_id && $order->shipment->status !== ShipmentStatus::Cancelled->value) {
                 throw ValidationException::withMessages(['shipment' => ['Cancel the courier booking before issuing a full refund.']]);
             }
             $refundKey = 'REF-'.$order->id.'-'.hash('sha256', $requestKey);
@@ -171,7 +174,7 @@ class PaymentRefundService
             $previousStatus = strtoupper($order->status);
 
             // Update Payment Record
-            $payment->status = $isFullRefund ? 'refunded' : 'partially_refunded';
+            $payment->status = $isFullRefund ? PaymentStatus::Refunded->value : PaymentStatus::PartiallyRefunded->value;
             $payment->refund_id = $refundResult['refund_id'] ?? $refundKey;
             $payment->refund_amount = (float) $payment->refund_amount + $amount;
             $payment->refund_reason = $reason;
@@ -195,14 +198,14 @@ class PaymentRefundService
             }
 
             // Update Order Status to CANCELLED / REFUNDED
-            $order->status = $isFullRefund && ! $hasLeftWarehouse ? 'CANCELLED' : $previousStatus;
+            $order->status = $isFullRefund && ! $hasLeftWarehouse ? OrderStatus::Cancelled->value : $previousStatus;
             if ($isFullRefund && ! $hasLeftWarehouse) {
                 $order->cancellation_reason = 'payment_issue';
                 $order->cancellation_note = 'Payment refunded (Rp '.number_format($amount, 0, ',', '.')."). Reason: {$reason}";
                 $order->cancelled_by = $admin->id;
                 $order->cancelled_at = now();
             }
-            $payment->requires_review = ! $isFullRefund && in_array($previousStatus, ['CANCELLED', 'EXPIRED'], true);
+            $payment->requires_review = ! $isFullRefund && in_array($previousStatus, [OrderStatus::Cancelled->value, OrderStatus::Expired->value], true);
             $payment->save();
             $order->save();
 

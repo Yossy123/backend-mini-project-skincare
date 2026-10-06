@@ -3,6 +3,8 @@
 namespace App\Jobs;
 
 use App\Contracts\ShippingProviderInterface;
+use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use App\Models\Order;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -52,13 +54,13 @@ class CreateBiteshipShipmentJob implements ShouldQueue
             }
 
             $shipment = $order->shipment;
-            if (! in_array(strtoupper($order->status), ['PROCESSING', 'PAID'], true)) {
-                if ($shipment?->biteship_order_id && $shipment->status === 'processing') {
+            if (! in_array(strtoupper($order->status), [OrderStatus::Processing->value, OrderStatus::Paid->value], true)) {
+                if ($shipment?->biteship_order_id && $shipment->status === ShipmentStatus::Processing->value) {
                     $result = $provider->cancelShipment($shipment->biteship_order_id, 'others');
                     if (! ($result['success'] ?? false)) {
                         throw new \RuntimeException('Courier cancellation failed for a closed order.');
                     }
-                    $shipment->update(['status' => 'cancelled']);
+                    $shipment->update(['status' => ShipmentStatus::Cancelled->value]);
                 }
 
                 return;
@@ -104,7 +106,7 @@ class CreateBiteshipShipmentJob implements ShouldQueue
 
                     return true;
                 }
-                if (! $currentOrder || in_array(strtoupper($currentOrder->status), ['SHIPPED', 'DELIVERED', 'COMPLETED'], true)) {
+                if (! $currentOrder || in_array(strtoupper($currentOrder->status), OrderStatus::leftWarehouseValues(), true)) {
                     return true;
                 }
 
@@ -115,10 +117,10 @@ class CreateBiteshipShipmentJob implements ShouldQueue
                     'tracking_number' => $result['waybill_id'] ?? null,
                     'courier' => $result['courier'] ?: $fresh->courier,
                     'service' => $result['service'] ?: $fresh->service,
-                    'status' => 'processing',
+                    'status' => ShipmentStatus::Processing->value,
                 ]);
 
-                return ! $currentOrder || ! in_array(strtoupper($currentOrder->status), ['PAID', 'PROCESSING'], true);
+                return ! $currentOrder || ! in_array(strtoupper($currentOrder->status), [OrderStatus::Paid->value, OrderStatus::Processing->value], true);
             });
             if ($shouldCancel) {
                 CancelBiteshipShipmentJob::dispatch($this->orderId, $result['order_id'])->afterCommit();

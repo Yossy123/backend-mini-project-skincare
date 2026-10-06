@@ -15,6 +15,10 @@ class BookingSystemSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->environment('production')) {
+            throw new \RuntimeException('Demo seeders create accounts with a known password and must not run in production.');
+        }
+
         // 1. Seed Services
         $servicesData = [
             [

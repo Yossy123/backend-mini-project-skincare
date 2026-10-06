@@ -6,18 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\PublicAppointmentResource;
 use App\Models\Appointment;
 use App\Models\Doctor;
-use App\Models\Patient;
 use App\Models\Service;
+use App\Services\Booking\BookingService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class BookingController extends Controller
 {
+    public function __construct(protected BookingService $bookingService) {}
+
     /**
      * Get list of active services for booking.
      */
@@ -70,11 +68,8 @@ class BookingController extends Controller
         }
 
         $date = Carbon::parse($request->date);
-        $dayOfWeek = $date->dayOfWeek; // 0 (Sun) to 6 (Sat)
 
-        // Validate doctor's schedule days
-        $availableDays = $doctor->available_days ?? [1, 2, 3, 4, 5];
-        if (! in_array($dayOfWeek, $availableDays)) {
+        if (! $this->bookingService->doctorWorksOn($doctor, $date)) {
             return response()->json([
                 'success' => true,
                 'message' => 'Dokter tidak berpraktik pada hari '.$date->locale('id')->isoFormat('dddd'),
@@ -87,61 +82,7 @@ class BookingController extends Controller
             ]);
         }
 
-        $durationMinutes = 60;
-        if ($request->filled('service_id')) {
-            $service = Service::find($request->service_id);
-            if ($service) {
-                $durationMinutes = $service->duration_minutes;
-            }
-        }
-
-        $workStart = Carbon::parse($request->date.' '.($doctor->work_start_time ?? '09:00:00'));
-        $workEnd = Carbon::parse($request->date.' '.($doctor->work_end_time ?? '17:00:00'));
-
-        // Query existing active bookings for this doctor on the date
-        $bookedAppointments = Appointment::where('doctor_id', $doctor->id)
-            ->whereDate('appointment_date', $request->date)
-            ->whereNotIn('status', ['cancelled', 'no_show'])
-            ->get(['start_time', 'end_time']);
-
-        $slots = [];
-        $current = $workStart->copy();
-        $isToday = $date->isToday();
-        $now = Carbon::now();
-
-        while ($current->copy()->addMinutes($durationMinutes)->lte($workEnd)) {
-            $slotStart = $current->copy();
-            $slotEnd = $current->copy()->addMinutes($durationMinutes);
-
-            $startStr = $slotStart->format('H:i');
-            $endStr = $slotEnd->format('H:i');
-
-            // Check overlap with existing appointments
-            $isBooked = false;
-            foreach ($bookedAppointments as $appt) {
-                $apptStart = Carbon::parse($request->date.' '.$appt->start_time);
-                $apptEnd = Carbon::parse($request->date.' '.$appt->end_time);
-
-                // Check overlap: start < apptEnd && end > apptStart
-                if ($slotStart->lt($apptEnd) && $slotEnd->gt($apptStart)) {
-                    $isBooked = true;
-                    break;
-                }
-            }
-
-            // If date is today and slot is in the past, mark as booked / unavailable
-            if ($isToday && $slotStart->lte($now)) {
-                $isBooked = true;
-            }
-
-            $slots[] = [
-                'start' => $startStr,
-                'end' => $endStr,
-                'is_booked' => $isBooked,
-            ];
-
-            $current->addMinutes($durationMinutes);
-        }
+        $service = $request->filled('service_id') ? Service::find($request->service_id) : null;
 
         return response()->json([
             'success' => true,
@@ -149,7 +90,7 @@ class BookingController extends Controller
                 'doctor' => $doctor,
                 'date' => $request->date,
                 'is_doctor_available' => true,
-                'slots' => $slots,
+                'slots' => $this->bookingService->calculateSlots($doctor, $request->date, $service),
             ],
         ]);
     }
@@ -173,149 +114,9 @@ class BookingController extends Controller
             'photo_url' => 'nullable|string|max:7168000',
         ]);
 
-        // Process Base64 image upload if provided
-        if (! empty($validated['photo_url'])) {
-            if (preg_match('/^data:image\/(jpeg|jpg|png|webp);base64,/', $validated['photo_url'], $matches)) {
-                $imageType = strtolower($matches[1]);
-                $imageData = substr($validated['photo_url'], strpos($validated['photo_url'], ',') + 1);
-                $decodedData = base64_decode($imageData, true);
-                $imageInfo = $decodedData !== false ? @getimagesizefromstring($decodedData) : false;
+        $user = $request->user('sanctum') ?? auth('sanctum')->user() ?? $request->user();
 
-                if ($decodedData === false || strlen($decodedData) > 5 * 1024 * 1024 || $imageInfo === false) {
-                    throw ValidationException::withMessages([
-                        'photo_url' => ['Foto tidak valid atau ukurannya melebihi 5 MB.'],
-                    ]);
-                }
-
-                $allowedMimeTypes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-                $extension = $allowedMimeTypes[$imageInfo['mime'] ?? ''] ?? null;
-                if ($extension === null || ($imageInfo[0] ?? 0) > 6000 || ($imageInfo[1] ?? 0) > 6000) {
-                    throw ValidationException::withMessages([
-                        'photo_url' => ['Format foto harus JPEG, PNG, atau WebP dengan ukuran maksimal 6000x6000 piksel.'],
-                    ]);
-                }
-
-                $filename = 'bookings/' . Str::random(30) . '.' . $extension;
-                Storage::disk('public')->put($filename, $decodedData);
-                $validated['photo_url'] = '/storage/' . $filename;
-            } else {
-                throw ValidationException::withMessages([
-                    'photo_url' => ['Foto harus dikirim dalam format JPEG, PNG, atau WebP yang valid.'],
-                ]);
-            }
-        }
-
-        $appointment = DB::transaction(function () use ($validated, $request) {
-            // 1. Lock doctor & verify active status
-            $doctor = Doctor::where('id', $validated['doctor_id'])
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            if (! $doctor->isActive()) {
-                throw ValidationException::withMessages([
-                    'doctor_id' => ['Dokter yang dipilih sedang tidak aktif.'],
-                ]);
-            }
-
-            // 2. Verify service
-            $service = Service::where('id', $validated['service_id'])
-                ->where('is_active', true)
-                ->firstOrFail();
-
-            // 3. Verify schedule day
-            $date = Carbon::parse($validated['date']);
-            $dayOfWeek = $date->dayOfWeek;
-            $availableDays = $doctor->available_days ?? [1, 2, 3, 4, 5];
-
-            if (! in_array($dayOfWeek, $availableDays)) {
-                throw ValidationException::withMessages([
-                    'date' => ['Dokter tidak berpraktik pada hari '.$date->locale('id')->isoFormat('dddd')],
-                ]);
-            }
-
-            // 4. Calculate start and end time
-            $startTime = Carbon::parse($validated['date'].' '.$validated['start_time'].':00');
-            $endTime = $startTime->copy()->addMinutes($service->duration_minutes);
-
-            $workStart = Carbon::parse($validated['date'].' '.($doctor->work_start_time ?? '09:00:00'));
-            $workEnd = Carbon::parse($validated['date'].' '.($doctor->work_end_time ?? '17:00:00'));
-
-            if ($startTime->lt($workStart) || $endTime->gt($workEnd)) {
-                throw ValidationException::withMessages([
-                    'start_time' => ['Jam yang dipilih berada di luar jam operasional praktik dokter ('.$doctor->work_start_time.' - '.$doctor->work_end_time.').'],
-                ]);
-            }
-
-            // Prevent booking in the past for today
-            if ($date->isToday() && $startTime->lte(Carbon::now())) {
-                throw ValidationException::withMessages([
-                    'start_time' => ['Jam yang dipilih sudah terlewat untuk hari ini.'],
-                ]);
-            }
-
-            // 5. Pessimistic check for overlapping appointments
-            $startTimeStr = $startTime->format('H:i:s');
-            $endTimeStr = $endTime->format('H:i:s');
-
-            $collision = Appointment::where('doctor_id', $doctor->id)
-                ->whereDate('appointment_date', $validated['date'])
-                ->whereNotIn('status', ['cancelled', 'no_show'])
-                ->where(function ($query) use ($startTimeStr, $endTimeStr) {
-                    $query->where(function ($q) use ($startTimeStr, $endTimeStr) {
-                        $q->where('start_time', '<', $endTimeStr)
-                            ->where('end_time', '>', $startTimeStr);
-                    });
-                })
-                ->lockForUpdate()
-                ->exists();
-
-            if ($collision) {
-                throw ValidationException::withMessages([
-                    'start_time' => ['Slot jadwal jam ini sudah diambil oleh pasien lain. Silakan pilih jam atau dokter lain.'],
-                ]);
-            }
-
-            // 6. Find or Create Patient and link user if authenticated
-            $user = $request->user('sanctum') ?? auth('sanctum')->user() ?? $request->user();
-            $userId = $user ? $user->id : null;
-
-            $patient = Patient::firstOrNew(['phone' => $validated['phone']]);
-            $patient->name = $validated['name'];
-            if (! empty($validated['email'])) {
-                $patient->email = $validated['email'];
-            }
-            if ($userId && ! $patient->user_id) {
-                $patient->user_id = $userId;
-            }
-            $patient->save();
-
-            // 7. Generate Unique Booking Code
-            do {
-                $bookingCode = 'LMR-BKG-'.Carbon::parse($validated['date'])->format('Ymd').'-'.strtoupper(Str::random(4));
-            } while (Appointment::where('booking_code', $bookingCode)->exists());
-
-            // 8. Create Appointment
-            $appointment = Appointment::create([
-                'booking_code' => $bookingCode,
-                'patient_id' => $patient->id,
-                'doctor_id' => $doctor->id,
-                'service_id' => $service->id,
-                'appointment_date' => $validated['date'],
-                'start_time' => $startTimeStr,
-                'end_time' => $endTimeStr,
-                'consultation_mode' => $validated['consultation_mode'],
-                'complaint' => $validated['notes'] ?? null,
-                'patient_notes' => $validated['notes'] ?? null,
-                'photo_url' => $validated['photo_url'] ?? null,
-                'status' => 'confirmed',
-                'created_by' => $userId,
-            ]);
-
-            // 9. Log Initial Status History
-            $appointment->logStatusChange('confirmed', $userId, 'Reservasi baru dibuat melalui sistem booking klinik.');
-
-            return $appointment->load(['patient', 'doctor', 'service']);
-        });
+        $appointment = $this->bookingService->createBooking($validated, $user);
 
         return response()->json([
             'success' => true,

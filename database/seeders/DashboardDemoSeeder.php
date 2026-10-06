@@ -19,6 +19,10 @@ class DashboardDemoSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->environment('production')) {
+            throw new \RuntimeException('Demo seeders create accounts with a known password and must not run in production.');
+        }
+
         $customer = User::firstOrCreate(
             ['email' => 'customer@lumiere.com'],
             [

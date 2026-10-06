@@ -3,6 +3,8 @@
 namespace App\Services\Orders;
 
 use App\Contracts\ShippingProviderInterface;
+use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use App\Jobs\CancelBiteshipShipmentJob;
 use App\Models\Order;
 use App\Models\Product;
@@ -68,7 +70,7 @@ class OrderCancellationService
             $order = Order::with('orderItems')->where('id', $orderId)->lockForUpdate()->firstOrFail();
 
             if (! $order->canBeCancelled() || $order->shipment?->shipped_at !== null
-                || in_array($order->shipment?->status, ['shipped', 'delivered', 'returned'], true)) {
+                || in_array($order->shipment?->status, [ShipmentStatus::Shipped->value, ShipmentStatus::Delivered->value, ShipmentStatus::Returned->value], true)) {
                 throw ValidationException::withMessages([
                     'status' => ["Order #{$order->id} with status '{$order->status}' cannot be cancelled."],
                 ]);
@@ -88,7 +90,7 @@ class OrderCancellationService
             }
 
             // Update order state
-            $order->status = 'CANCELLED';
+            $order->status = OrderStatus::Cancelled->value;
             $order->cancellation_reason = $reason;
             $order->cancellation_note = $note ?: null;
             $order->cancelled_by = $admin->id;
@@ -102,7 +104,7 @@ class OrderCancellationService
                 adminId: $admin->id,
                 action: 'ORDER_CANCELLED',
                 previousStatus: $previousStatus,
-                newStatus: 'CANCELLED',
+                newStatus: OrderStatus::Cancelled->value,
                 note: $note ?: "Order cancelled. Reason: {$reason}.",
                 reason: $reason,
                 metadata: [
@@ -115,7 +117,7 @@ class OrderCancellationService
         });
 
         $this->cancelExternalShipment($order, $reason);
-        if ($order->shipment?->fresh()?->status === 'cancelled') {
+        if ($order->shipment?->fresh()?->status === ShipmentStatus::Cancelled->value) {
             DB::transaction(function () use ($order) {
                 $locked = Order::with('orderItems')->whereKey($order->id)->lockForUpdate()->firstOrFail();
                 if ($locked->stock_restored_at === null) {
@@ -175,6 +177,6 @@ class OrderCancellationService
             }
         }
 
-        $shipment->update(['status' => 'cancelled']);
+        $shipment->update(['status' => ShipmentStatus::Cancelled->value]);
     }
 }
