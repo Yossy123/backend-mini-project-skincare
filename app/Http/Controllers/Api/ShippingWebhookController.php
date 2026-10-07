@@ -19,6 +19,13 @@ class ShippingWebhookController extends Controller
      */
     public function handleBiteship(Request $request): JsonResponse
     {
+        // Biteship confirms a webhook URL on installation with an empty, unsigned request and
+        // only accepts it after an "ok" reply. A request with no data at all changes nothing,
+        // so acknowledging it is safe; every request that carries data must still be signed.
+        if ($request->all() === []) {
+            return response()->json(['success' => true, 'message' => 'Biteship webhook endpoint is reachable'], 200);
+        }
+
         if (! $this->webhookService->verifyWebhook($request)) {
             Log::warning('Biteship webhook signature verification failed');
 

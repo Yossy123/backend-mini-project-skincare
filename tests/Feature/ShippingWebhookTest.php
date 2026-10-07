@@ -118,6 +118,36 @@ class ShippingWebhookTest extends TestCase
 
     }
 
+    public function test_webhook_url_installation_probe_without_signature_is_acknowledged_without_changes(): void
+    {
+        $shipment = Shipment::create([
+            'order_id' => Order::factory()->create(['status' => 'SHIPPED'])->id,
+            'courier' => 'JNE',
+            'service' => 'REG',
+            'tracking_number' => 'JNE99887766',
+            'status' => 'shipped',
+        ]);
+
+        $this->postJson('/api/shipping/webhook/biteship', [])->assertOk()->assertJsonPath('success', true);
+        $this->call('POST', '/api/shipping/webhook/biteship', [], [], [], ['CONTENT_TYPE' => 'application/json'], '')->assertOk();
+
+        $this->assertDatabaseHas('shipments', ['id' => $shipment->id, 'status' => 'shipped']);
+    }
+
+    public function test_webhook_carrying_any_data_still_requires_a_valid_signature(): void
+    {
+        foreach (
+            [
+                ['event' => 'order.status', 'status' => 'delivered'],
+                ['order_id' => 'ord_1'],
+                ['courier_waybill_id' => 'JNE99887766'],
+                ['courier_tracking_id' => 'trk_1', 'status' => 'delivered'],
+            ] as $payload
+        ) {
+            $this->postJson('/api/shipping/webhook/biteship', $payload)->assertStatus(401);
+        }
+    }
+
     public function test_webhook_rejects_when_secret_is_missing(): void
     {
         Config::set('services.biteship.webhook_secret', '');
