@@ -90,10 +90,29 @@ class MidtransService
         return (array) $response->json();
     }
 
+    /**
+     * Force a still-pending gateway transaction (e.g. an unpaid virtual account) to expire.
+     *
+     * Returns true only when the gateway confirms the transaction is now expired.
+     */
+    public function expireTransaction(string $identity): bool
+    {
+        $response = $this->client()->baseUrl(rtrim((string) config('services.midtrans.api_base_url'), '/'))
+            ->post('/'.rawurlencode($identity).'/expire');
+
+        // Midtrans reports success as body status_code 407, which some gateways also use as the HTTP status.
+        return in_array((string) $response->json('status_code'), ['200', '407'], true)
+            && strtolower((string) $response->json('transaction_status')) === 'expire';
+    }
+
+    /**
+     * Cancel an unused Snap payment page so it can no longer start a transaction.
+     *
+     * Uses the same Basic server-key authentication as every other Midtrans API call.
+     */
     public function cancelSnapSession(string $token): bool
     {
-        $response = $this->client()->withHeaders(['Authorization' => (string) config('services.midtrans.server_key')])
-            ->post('/snap/v1/transactions/'.rawurlencode($token).'/cancel');
+        $response = $this->client()->post('/snap/v1/transactions/'.rawurlencode($token).'/cancel');
 
         return ($response->successful() && ! empty($response->json('canceled_at')))
             || in_array('token already canceled', (array) $response->json('error_messages'), true);

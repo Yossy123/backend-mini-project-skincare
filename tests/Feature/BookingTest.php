@@ -9,11 +9,15 @@ use App\Models\Service;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class BookingTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const ONE_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
     protected User $adminUser;
 
@@ -163,6 +167,30 @@ class BookingTest extends TestCase
         ]);
     }
 
+    public function test_booking_code_has_a_long_unambiguous_random_part_and_lookup_ignores_case(): void
+    {
+        $date = Carbon::tomorrow();
+
+        $code = $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => $date->format('Y-m-d'),
+            'start_time' => '10:00',
+            'name' => 'Code Patient',
+            'phone' => '+628199999999',
+        ])->assertCreated()->json('data.booking_code');
+
+        $this->assertMatchesRegularExpression(
+            '/^LMR-BKG-'.$date->format('Ymd').'-[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/',
+            $code
+        );
+
+        $this->getJson('/api/booking/lookup?booking_code='.urlencode(' '.strtolower($code).' '))
+            ->assertOk()
+            ->assertJsonPath('data.booking_code', $code);
+    }
+
     public function test_public_booking_lookup_does_not_expose_clinical_or_contact_data(): void
     {
         $appointment = Appointment::create([
@@ -225,6 +253,165 @@ class BookingTest extends TestCase
         $this->actingAs($this->customerUser, 'sanctum')
             ->getJson('/api/my-appointments/'.$appointment->id)
             ->assertNotFound();
+    }
+
+    public function test_booking_with_another_persons_phone_does_not_claim_or_overwrite_their_patient_record(): void
+    {
+        $walkInPatient = Patient::create([
+            'name' => 'Walk-in Patient',
+            'phone' => '+628155555555',
+            'email' => 'walkin@example.com',
+            'medical_history' => 'Sensitive medical history',
+        ]);
+
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '10:00',
+            'name' => 'Attacker Name',
+            'phone' => $walkInPatient->phone,
+            'email' => 'attacker@example.com',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('patients', [
+            'id' => $walkInPatient->id,
+            'user_id' => null,
+            'name' => 'Walk-in Patient',
+            'email' => 'walkin@example.com',
+        ]);
+        $this->assertNotSame($walkInPatient->id, Appointment::firstOrFail()->patient_id);
+
+        $this->actingAs($this->customerUser, 'sanctum')
+            ->getJson('/api/my-profile/health')
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Attacker Name')
+            ->assertJsonPath('data.medical_history', null);
+    }
+
+    public function test_repeat_booking_reuses_the_accounts_own_patient_record(): void
+    {
+        $payload = [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'name' => 'Repeat Patient',
+            'phone' => '+628166666666',
+        ];
+
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [...$payload, 'start_time' => '10:00'])->assertCreated();
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [...$payload, 'start_time' => '12:00'])->assertCreated();
+
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseHas('patients', ['phone' => '+628166666666', 'user_id' => $this->customerUser->id]);
+    }
+
+    public function test_patient_cannot_cancel_a_no_show_appointment(): void
+    {
+        $appointment = Appointment::create([
+            'booking_code' => 'LMR-BKG-NOSHOW-001',
+            'patient_id' => Patient::create([
+                'user_id' => $this->customerUser->id,
+                'name' => 'No Show Patient',
+                'phone' => $this->customerUser->phone,
+            ])->id,
+            'doctor_id' => $this->doctor->id,
+            'service_id' => $this->service->id,
+            'appointment_date' => Carbon::yesterday()->format('Y-m-d'),
+            'start_time' => '10:00:00',
+            'end_time' => '11:00:00',
+            'status' => 'no_show',
+        ]);
+
+        $this->actingAs($this->customerUser, 'sanctum')
+            ->patchJson("/api/my-appointments/{$appointment->id}/cancel")
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('appointments', ['id' => $appointment->id, 'status' => 'no_show']);
+    }
+
+    public function test_booking_photo_is_stored_on_the_private_disk(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+
+        $response = $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '10:00',
+            'name' => 'Photo Patient',
+            'phone' => '+628177777777',
+            'photo_url' => 'data:image/png;base64,'.self::ONE_PIXEL_PNG,
+        ])->assertCreated();
+
+        $storedPath = Appointment::firstOrFail()->getRawOriginal('photo_url');
+        $this->assertStringStartsWith('bookings/', $storedPath);
+        Storage::disk('local')->assertExists($storedPath);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->assertStringContainsString('expiration=', $response->json('data.photo_url'));
+    }
+
+    public function test_booking_photo_is_removed_when_the_booking_fails(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '16:30',
+            'name' => 'Photo Patient',
+            'phone' => '+628177777777',
+            'photo_url' => 'data:image/png;base64,'.self::ONE_PIXEL_PNG,
+        ])->assertUnprocessable();
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_migration_moves_legacy_public_booking_photos_to_the_private_disk(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+        Storage::disk('public')->put('bookings/legacy.png', base64_decode(self::ONE_PIXEL_PNG));
+        $appointment = Appointment::create([
+            'booking_code' => 'LMR-BKG-LEGACY-001',
+            'patient_id' => Patient::create(['name' => 'Legacy Patient', 'phone' => '+628188888888'])->id,
+            'doctor_id' => $this->doctor->id,
+            'service_id' => $this->service->id,
+            'appointment_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '10:00:00',
+            'end_time' => '11:00:00',
+            'photo_url' => '/storage/bookings/legacy.png',
+            'status' => 'confirmed',
+        ]);
+
+        (require database_path('migrations/2026_10_07_085157_move_booking_photos_to_private_disk.php'))->up();
+
+        $this->assertSame('bookings/legacy.png', $appointment->fresh()->getRawOriginal('photo_url'));
+        Storage::disk('local')->assertExists('bookings/legacy.png');
+        Storage::disk('public')->assertMissing('bookings/legacy.png');
+    }
+
+    public function test_private_booking_photo_is_only_served_through_its_signed_url(): void
+    {
+        $path = 'bookings/test-'.Str::random(12).'.png';
+        Storage::disk('local')->put($path, base64_decode(self::ONE_PIXEL_PNG));
+
+        try {
+            $appointment = new Appointment(['photo_url' => $path]);
+
+            $this->get($appointment->photo_url)->assertOk();
+            $this->get('/storage/'.$path)->assertForbidden();
+        } finally {
+            Storage::disk('local')->delete($path);
+        }
     }
 
     public function test_rejects_slot_collision_double_booking(): void

@@ -2,14 +2,24 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class Appointment extends Model
 {
     use HasFactory;
+
+    /** Private disk that holds patient-uploaded clinical photos. */
+    public const PHOTO_DISK = 'local';
+
+    public const PHOTO_DIRECTORY = 'bookings';
+
+    /** Minutes a signed clinical-photo URL stays valid. */
+    public const PHOTO_URL_TTL_MINUTES = 30;
 
     protected $fillable = [
         'booking_code',
@@ -37,6 +47,22 @@ class Appointment extends Model
         return [
             'appointment_date' => 'date:Y-m-d',
         ];
+    }
+
+    /**
+     * Expose the stored private photo path only as a short-lived signed URL.
+     *
+     * Values that are not private disk paths (absolute URLs or legacy data URIs) pass through unchanged.
+     */
+    protected function photoUrl(): Attribute
+    {
+        return Attribute::get(function (?string $value): ?string {
+            if ($value === null || $value === '' || ! str_starts_with($value, self::PHOTO_DIRECTORY.'/')) {
+                return $value;
+            }
+
+            return Storage::disk(self::PHOTO_DISK)->temporaryUrl($value, now()->addMinutes(self::PHOTO_URL_TTL_MINUTES));
+        });
     }
 
     public function patient(): BelongsTo

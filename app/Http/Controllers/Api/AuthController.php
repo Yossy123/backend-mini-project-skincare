@@ -88,6 +88,7 @@ class AuthController extends Controller
             'user' => new UserResource($request->user()),
         ], 200);
     }
+
     /** Update the authenticated user's own account details. */
     public function updateMe(Request $request): JsonResponse
     {

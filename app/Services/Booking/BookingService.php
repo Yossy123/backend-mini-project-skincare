@@ -24,6 +24,10 @@ class BookingService
 
     private const DEFAULT_SLOT_MINUTES = 60;
 
+    private const BOOKING_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+    private const BOOKING_CODE_RANDOM_LENGTH = 10;
+
     public function doctorWorksOn(Doctor $doctor, Carbon $date): bool
     {
         return in_array($date->dayOfWeek, $doctor->available_days ?? self::DEFAULT_AVAILABLE_DAYS);
@@ -85,7 +89,10 @@ class BookingService
     }
 
     /**
-     * Decode and store an uploaded base64 photo, returning its public path.
+     * Decode and store an uploaded base64 photo on the private disk, returning its disk path.
+     *
+     * Clinical photos are never placed on the public disk; they are only reachable through
+     * short-lived signed URLs (see Appointment::photoUrl()).
      *
      * @throws ValidationException
      */
@@ -115,10 +122,10 @@ class BookingService
             ]);
         }
 
-        $filename = 'bookings/'.Str::random(30).'.'.$extension;
-        Storage::disk('public')->put($filename, $decodedData);
+        $filename = Appointment::PHOTO_DIRECTORY.'/'.Str::random(40).'.'.$extension;
+        Storage::disk(Appointment::PHOTO_DISK)->put($filename, $decodedData);
 
-        return '/storage/'.$filename;
+        return $filename;
     }
 
     /**
@@ -130,10 +137,29 @@ class BookingService
      */
     public function createBooking(array $data, ?User $user): Appointment
     {
+        $storedPhoto = null;
         if (! empty($data['photo_url'])) {
-            $data['photo_url'] = $this->storeBase64Photo($data['photo_url']);
+            $storedPhoto = $data['photo_url'] = $this->storeBase64Photo($data['photo_url']);
         }
 
+        try {
+            return $this->createBookingRecord($data, $user);
+        } catch (\Throwable $exception) {
+            if ($storedPhoto !== null) {
+                Storage::disk(Appointment::PHOTO_DISK)->delete($storedPhoto);
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  Validated booking payload with the photo already stored.
+     *
+     * @throws ValidationException
+     */
+    private function createBookingRecord(array $data, ?User $user): Appointment
+    {
         return DB::transaction(function () use ($data, $user) {
             $doctor = Doctor::where('id', $data['doctor_id'])
                 ->lockForUpdate()
@@ -217,19 +243,25 @@ class BookingService
     }
 
     /**
+     * Reuse only a patient record already owned by the booking account.
+     *
+     * A phone number is user-supplied and unverified, so it must never be used to
+     * claim or overwrite another person's clinical record; records booked by
+     * someone else (or walk-in records without an account) stay untouched and a
+     * separate record is created for this account instead.
+     *
      * @param  array<string, mixed>  $data
      */
     private function resolvePatient(array $data, ?User $user): Patient
     {
-        $patient = Patient::firstOrNew(['phone' => $data['phone']]);
+        $patient = $user
+            ? Patient::firstOrNew(['user_id' => $user->id, 'phone' => $data['phone']])
+            : new Patient(['phone' => $data['phone']]);
+
         $patient->name = $data['name'];
 
         if (! empty($data['email'])) {
             $patient->email = $data['email'];
-        }
-
-        if ($user && ! $patient->user_id) {
-            $patient->user_id = $user->id;
         }
 
         $patient->save();
@@ -237,10 +269,21 @@ class BookingService
         return $patient;
     }
 
+    /**
+     * Generate an unguessable booking code such as `LMR-BKG-20261008-K7QXM-3PZ9A`.
+     *
+     * The code is the only credential for the public booking lookup, so its random part
+     * carries 50 bits of entropy from a CSPRNG and skips look-alike characters (0/O, 1/I).
+     */
     private function generateBookingCode(Carbon $date): string
     {
         do {
-            $bookingCode = 'LMR-BKG-'.$date->format('Ymd').'-'.strtoupper(Str::random(4));
+            $random = '';
+            for ($i = 0; $i < self::BOOKING_CODE_RANDOM_LENGTH; $i++) {
+                $random .= self::BOOKING_CODE_ALPHABET[random_int(0, strlen(self::BOOKING_CODE_ALPHABET) - 1)];
+            }
+
+            $bookingCode = 'LMR-BKG-'.$date->format('Ymd').'-'.implode('-', str_split($random, 5));
         } while (Appointment::where('booking_code', $bookingCode)->exists());
 
         return $bookingCode;
