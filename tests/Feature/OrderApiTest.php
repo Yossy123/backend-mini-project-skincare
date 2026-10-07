@@ -8,6 +8,9 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Events\RequestSending;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -356,6 +359,49 @@ class OrderApiTest extends TestCase
         $second->assertCreated()->assertJsonPath('data.id', $first->json('data.id'));
         $this->assertDatabaseCount('orders', 1);
         $this->assertEquals(8, $product->fresh()->stock);
+    }
+
+    public function test_biteship_rate_is_quoted_outside_the_order_transaction(): void
+    {
+        $user = User::factory()->create();
+        $address = Address::factory()->create(['user_id' => $user->id, 'postal_code' => '12220']);
+        $product = Product::factory()->create(['price' => 100000, 'weight' => 100, 'stock' => 10, 'is_active' => true]);
+        $baselineLevel = DB::transactionLevel();
+        $levelsDuringCourierCalls = [];
+        Event::listen(RequestSending::class, function () use (&$levelsDuringCourierCalls) {
+            $levelsDuringCourierCalls[] = DB::transactionLevel();
+        });
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/orders', [
+            'items' => [['product_id' => $product->id, 'quantity' => 2]],
+            'address_id' => $address->id,
+            'courier' => 'JNE',
+            'service' => 'REG',
+        ])->assertCreated();
+
+        $this->assertNotEmpty($levelsDuringCourierCalls);
+        $this->assertSame([$baselineLevel], array_values(array_unique($levelsDuringCourierCalls)));
+        $this->assertEquals(8, $product->fresh()->stock);
+    }
+
+    public function test_order_is_rejected_when_price_changes_while_shipping_is_quoted(): void
+    {
+        $user = User::factory()->create();
+        $address = Address::factory()->create(['user_id' => $user->id, 'postal_code' => '12220']);
+        $product = Product::factory()->create(['price' => 100000, 'weight' => 100, 'stock' => 10, 'is_active' => true]);
+        Event::listen(RequestSending::class, function () use ($product) {
+            Product::whereKey($product->id)->update(['price' => 150000]);
+        });
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/orders', [
+            'items' => [['product_id' => $product->id, 'quantity' => 2]],
+            'address_id' => $address->id,
+            'courier' => 'JNE',
+            'service' => 'REG',
+        ])->assertUnprocessable()->assertJsonValidationErrors('items');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertEquals(10, $product->fresh()->stock);
     }
 
     /**

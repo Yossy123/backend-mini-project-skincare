@@ -9,11 +9,15 @@ use App\Models\Service;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class BookingTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const ONE_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
     protected User $adminUser;
 
@@ -302,6 +306,88 @@ class BookingTest extends TestCase
             ->assertUnprocessable();
 
         $this->assertDatabaseHas('appointments', ['id' => $appointment->id, 'status' => 'no_show']);
+    }
+
+    public function test_booking_photo_is_stored_on_the_private_disk(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+
+        $response = $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '10:00',
+            'name' => 'Photo Patient',
+            'phone' => '+628177777777',
+            'photo_url' => 'data:image/png;base64,'.self::ONE_PIXEL_PNG,
+        ])->assertCreated();
+
+        $storedPath = Appointment::firstOrFail()->getRawOriginal('photo_url');
+        $this->assertStringStartsWith('bookings/', $storedPath);
+        Storage::disk('local')->assertExists($storedPath);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->assertStringContainsString('expiration=', $response->json('data.photo_url'));
+    }
+
+    public function test_booking_photo_is_removed_when_the_booking_fails(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '16:30',
+            'name' => 'Photo Patient',
+            'phone' => '+628177777777',
+            'photo_url' => 'data:image/png;base64,'.self::ONE_PIXEL_PNG,
+        ])->assertUnprocessable();
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_migration_moves_legacy_public_booking_photos_to_the_private_disk(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+        Storage::disk('public')->put('bookings/legacy.png', base64_decode(self::ONE_PIXEL_PNG));
+        $appointment = Appointment::create([
+            'booking_code' => 'LMR-BKG-LEGACY-001',
+            'patient_id' => Patient::create(['name' => 'Legacy Patient', 'phone' => '+628188888888'])->id,
+            'doctor_id' => $this->doctor->id,
+            'service_id' => $this->service->id,
+            'appointment_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '10:00:00',
+            'end_time' => '11:00:00',
+            'photo_url' => '/storage/bookings/legacy.png',
+            'status' => 'confirmed',
+        ]);
+
+        (require database_path('migrations/2026_10_07_085157_move_booking_photos_to_private_disk.php'))->up();
+
+        $this->assertSame('bookings/legacy.png', $appointment->fresh()->getRawOriginal('photo_url'));
+        Storage::disk('local')->assertExists('bookings/legacy.png');
+        Storage::disk('public')->assertMissing('bookings/legacy.png');
+    }
+
+    public function test_private_booking_photo_is_only_served_through_its_signed_url(): void
+    {
+        $path = 'bookings/test-'.Str::random(12).'.png';
+        Storage::disk('local')->put($path, base64_decode(self::ONE_PIXEL_PNG));
+
+        try {
+            $appointment = new Appointment(['photo_url' => $path]);
+
+            $this->get($appointment->photo_url)->assertOk();
+            $this->get('/storage/'.$path)->assertForbidden();
+        } finally {
+            Storage::disk('local')->delete($path);
+        }
     }
 
     public function test_rejects_slot_collision_double_booking(): void
