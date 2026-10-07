@@ -85,7 +85,10 @@ class BookingService
     }
 
     /**
-     * Decode and store an uploaded base64 photo, returning its public path.
+     * Decode and store an uploaded base64 photo on the private disk, returning its disk path.
+     *
+     * Clinical photos are never placed on the public disk; they are only reachable through
+     * short-lived signed URLs (see Appointment::photoUrl()).
      *
      * @throws ValidationException
      */
@@ -115,10 +118,10 @@ class BookingService
             ]);
         }
 
-        $filename = 'bookings/'.Str::random(30).'.'.$extension;
-        Storage::disk('public')->put($filename, $decodedData);
+        $filename = Appointment::PHOTO_DIRECTORY.'/'.Str::random(40).'.'.$extension;
+        Storage::disk(Appointment::PHOTO_DISK)->put($filename, $decodedData);
 
-        return '/storage/'.$filename;
+        return $filename;
     }
 
     /**
@@ -130,10 +133,29 @@ class BookingService
      */
     public function createBooking(array $data, ?User $user): Appointment
     {
+        $storedPhoto = null;
         if (! empty($data['photo_url'])) {
-            $data['photo_url'] = $this->storeBase64Photo($data['photo_url']);
+            $storedPhoto = $data['photo_url'] = $this->storeBase64Photo($data['photo_url']);
         }
 
+        try {
+            return $this->createBookingRecord($data, $user);
+        } catch (\Throwable $exception) {
+            if ($storedPhoto !== null) {
+                Storage::disk(Appointment::PHOTO_DISK)->delete($storedPhoto);
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data  Validated booking payload with the photo already stored.
+     *
+     * @throws ValidationException
+     */
+    private function createBookingRecord(array $data, ?User $user): Appointment
+    {
         return DB::transaction(function () use ($data, $user) {
             $doctor = Doctor::where('id', $data['doctor_id'])
                 ->lockForUpdate()
