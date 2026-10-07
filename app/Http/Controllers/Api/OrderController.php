@@ -48,14 +48,13 @@ class OrderController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse|OrderResource
     {
-        $order = Order::with(['orderItems', 'shipment', 'payment'])->find($id);
+        // Scope by owner so another customer's order is indistinguishable from a missing one.
+        $order = Order::with(['orderItems', 'shipment', 'payment'])
+            ->where('user_id', $request->user()->id)
+            ->find($id);
 
         if (! $order) {
             return response()->json(['message' => 'Order not found.'], 404);
-        }
-
-        if ($order->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
         return new OrderResource($order);

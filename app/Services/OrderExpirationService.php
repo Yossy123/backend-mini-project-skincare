@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
+use App\Models\Payment;
 use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,17 +35,18 @@ class OrderExpirationService
                 $payment = $order->payment;
                 if ($payment?->snap_token) {
                     // A callback may be delayed. Keep inventory reserved until the gateway confirms a terminal outcome.
-                    app(PaymentService::class)->synchronizePayment($payment);
-                    if (strtoupper($order->fresh()->status) !== OrderStatus::PendingPayment->value) {
-                        if ($order->fresh()->status === OrderStatus::Expired->value) {
-                            $expiredCount++;
-                        }
+                    $gatewayTransaction = app(PaymentService::class)->synchronizePayment($payment);
+                    if ($this->countIfClosed($order, $expiredCount)) {
+                        continue;
+                    }
+
+                    if (! $this->releaseGatewaySession($payment, $gatewayTransaction !== null)) {
+                        $payment->update(['requires_review' => true]);
 
                         continue;
                     }
-                    if (! app(MidtransService::class)->cancelSnapSession($payment->snap_token)) {
-                        $payment->update(['requires_review' => true]);
 
+                    if ($this->countIfClosed($order, $expiredCount)) {
                         continue;
                     }
                 }
@@ -98,5 +100,42 @@ class OrderExpirationService
         }
 
         return $expiredCount;
+    }
+
+    /**
+     * Whether the gateway already moved the order out of PENDING_PAYMENT, counting it when it expired.
+     */
+    protected function countIfClosed(Order $order, int &$expiredCount): bool
+    {
+        $status = strtoupper((string) $order->fresh()->status);
+        if ($status === OrderStatus::PendingPayment->value) {
+            return false;
+        }
+
+        if ($status === OrderStatus::Expired->value) {
+            $expiredCount++;
+        }
+
+        return true;
+    }
+
+    /**
+     * Make sure the customer can no longer pay through the gateway before stock is released.
+     *
+     * - A live pending transaction (e.g. an issued virtual account) is expired at the gateway.
+     * - With no transaction yet, the Snap page cannot start one once its own expiry has passed,
+     *   so only an early (admin-triggered) expiry still needs the Snap session cancelled.
+     */
+    protected function releaseGatewaySession(Payment $payment, bool $hasGatewayTransaction): bool
+    {
+        if ($hasGatewayTransaction) {
+            return app(PaymentService::class)->expireGatewayTransaction($payment);
+        }
+
+        if ($payment->merchant_order_id && $payment->expires_at?->isPast()) {
+            return true;
+        }
+
+        return app(MidtransService::class)->cancelSnapSession($payment->snap_token);
     }
 }

@@ -227,6 +227,83 @@ class BookingTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_booking_with_another_persons_phone_does_not_claim_or_overwrite_their_patient_record(): void
+    {
+        $walkInPatient = Patient::create([
+            'name' => 'Walk-in Patient',
+            'phone' => '+628155555555',
+            'email' => 'walkin@example.com',
+            'medical_history' => 'Sensitive medical history',
+        ]);
+
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'start_time' => '10:00',
+            'name' => 'Attacker Name',
+            'phone' => $walkInPatient->phone,
+            'email' => 'attacker@example.com',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('patients', [
+            'id' => $walkInPatient->id,
+            'user_id' => null,
+            'name' => 'Walk-in Patient',
+            'email' => 'walkin@example.com',
+        ]);
+        $this->assertNotSame($walkInPatient->id, Appointment::firstOrFail()->patient_id);
+
+        $this->actingAs($this->customerUser, 'sanctum')
+            ->getJson('/api/my-profile/health')
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Attacker Name')
+            ->assertJsonPath('data.medical_history', null);
+    }
+
+    public function test_repeat_booking_reuses_the_accounts_own_patient_record(): void
+    {
+        $payload = [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => Carbon::tomorrow()->format('Y-m-d'),
+            'name' => 'Repeat Patient',
+            'phone' => '+628166666666',
+        ];
+
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [...$payload, 'start_time' => '10:00'])->assertCreated();
+        $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [...$payload, 'start_time' => '12:00'])->assertCreated();
+
+        $this->assertDatabaseCount('patients', 1);
+        $this->assertDatabaseHas('patients', ['phone' => '+628166666666', 'user_id' => $this->customerUser->id]);
+    }
+
+    public function test_patient_cannot_cancel_a_no_show_appointment(): void
+    {
+        $appointment = Appointment::create([
+            'booking_code' => 'LMR-BKG-NOSHOW-001',
+            'patient_id' => Patient::create([
+                'user_id' => $this->customerUser->id,
+                'name' => 'No Show Patient',
+                'phone' => $this->customerUser->phone,
+            ])->id,
+            'doctor_id' => $this->doctor->id,
+            'service_id' => $this->service->id,
+            'appointment_date' => Carbon::yesterday()->format('Y-m-d'),
+            'start_time' => '10:00:00',
+            'end_time' => '11:00:00',
+            'status' => 'no_show',
+        ]);
+
+        $this->actingAs($this->customerUser, 'sanctum')
+            ->patchJson("/api/my-appointments/{$appointment->id}/cancel")
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('appointments', ['id' => $appointment->id, 'status' => 'no_show']);
+    }
+
     public function test_rejects_slot_collision_double_booking(): void
     {
         $futureDate = Carbon::tomorrow()->format('Y-m-d');

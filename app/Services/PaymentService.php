@@ -132,6 +132,27 @@ class PaymentService
         return $notification ? $this->applyVerifiedNotification($notification) : null;
     }
 
+    /**
+     * Ask the gateway to expire a live pending transaction, then apply the status it reports.
+     *
+     * Returns false when the gateway did not confirm the expiry (e.g. it was paid meanwhile),
+     * so the caller keeps the stock reserved.
+     */
+    public function expireGatewayTransaction(Payment $payment): bool
+    {
+        if (! $payment->merchant_order_id || ! $this->isEnabled()) {
+            return false;
+        }
+
+        if (! $this->midtrans->expireTransaction($payment->merchant_order_id)) {
+            return false;
+        }
+
+        $this->synchronizePayment($payment);
+
+        return true;
+    }
+
     protected function applyVerifiedNotification(array $notification): Payment
     {
         $identity = (string) ($notification['order_id'] ?? '');

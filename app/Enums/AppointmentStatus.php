@@ -32,7 +32,7 @@ enum AppointmentStatus: string
      */
     public static function notCancellableByPatientValues(): array
     {
-        return [self::Completed->value, self::Cancelled->value, self::InProgress->value];
+        return [self::CheckedIn->value, self::InProgress->value, self::Completed->value, self::Cancelled->value, self::NoShow->value];
     }
 
     /**

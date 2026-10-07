@@ -137,14 +137,57 @@ class ProductOrderHardeningTest extends TestCase
         $order->payment->update(['snap_token' => 'existing-token']);
         Http::fake([
             'api.sandbox.midtrans.com/v2/'.$order->payment->merchant_order_id.'/status' => Http::response($this->notification($order, 'pending')),
-            'app.sandbox.midtrans.com/snap/v1/transactions/existing-token/cancel' => Http::response(['error_messages' => ['Transaction is on progress']], 400),
+            'api.sandbox.midtrans.com/v2/'.$order->payment->merchant_order_id.'/expire' => Http::response(['status_code' => '412', 'status_message' => 'Merchant cannot modify the status of the transaction']),
         ]);
 
         $count = app(OrderExpirationService::class)->expirePendingOrders();
 
         $this->assertSame(0, $count);
         $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'PENDING_PAYMENT', 'stock_restored_at' => null]);
+        $this->assertDatabaseHas('payments', ['order_id' => $order->id, 'requires_review' => true]);
         Http::assertSentCount(2);
+    }
+
+    public function test_pending_gateway_transaction_is_expired_at_gateway_before_releasing_stock(): void
+    {
+        $this->freezeTime();
+        $order = $this->order();
+        $order->forceFill(['created_at' => now()->subHours(25)])->save();
+        $order->payment->update(['snap_token' => 'existing-token']);
+        $identity = $order->payment->merchant_order_id;
+        Http::fake([
+            'api.sandbox.midtrans.com/v2/'.$identity.'/status' => Http::sequence()
+                ->push($this->notification($order, 'pending'))
+                ->push($this->notification($order, 'expire')),
+            'api.sandbox.midtrans.com/v2/'.$identity.'/expire' => Http::response(['status_code' => '407', 'transaction_status' => 'expire']),
+        ]);
+
+        $count = app(OrderExpirationService::class)->expirePendingOrders();
+
+        $this->assertSame(1, $count);
+        $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'EXPIRED']);
+        $this->assertDatabaseHas('payments', ['order_id' => $order->id, 'status' => 'expired']);
+        $this->assertDatabaseHas('products', ['id' => $order->orderItems[0]->product_id, 'stock' => 10]);
+        Http::assertSent(fn ($request) => $request->method() === 'POST' && str_ends_with($request->url(), '/'.$identity.'/expire'));
+        Http::assertSentCount(3);
+    }
+
+    public function test_lapsed_snap_session_without_gateway_transaction_expires_without_cancel_call(): void
+    {
+        $this->freezeTime();
+        $order = $this->order();
+        $order->forceFill(['created_at' => now()->subHours(25)])->save();
+        $order->payment->update(['snap_token' => 'existing-token', 'expires_at' => now()->subHour()]);
+        Http::fake([
+            'api.sandbox.midtrans.com/v2/'.$order->payment->merchant_order_id.'/status' => Http::response(['status_code' => '404'], 404),
+        ]);
+
+        $count = app(OrderExpirationService::class)->expirePendingOrders();
+
+        $this->assertSame(1, $count);
+        $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'EXPIRED']);
+        $this->assertDatabaseHas('products', ['id' => $order->orderItems[0]->product_id, 'stock' => 10]);
+        Http::assertSentCount(1);
     }
 
     public function test_partial_refund_does_not_cancel_order_or_restore_stock(): void

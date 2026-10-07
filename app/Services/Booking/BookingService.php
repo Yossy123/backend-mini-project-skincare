@@ -217,19 +217,25 @@ class BookingService
     }
 
     /**
+     * Reuse only a patient record already owned by the booking account.
+     *
+     * A phone number is user-supplied and unverified, so it must never be used to
+     * claim or overwrite another person's clinical record; records booked by
+     * someone else (or walk-in records without an account) stay untouched and a
+     * separate record is created for this account instead.
+     *
      * @param  array<string, mixed>  $data
      */
     private function resolvePatient(array $data, ?User $user): Patient
     {
-        $patient = Patient::firstOrNew(['phone' => $data['phone']]);
+        $patient = $user
+            ? Patient::firstOrNew(['user_id' => $user->id, 'phone' => $data['phone']])
+            : new Patient(['phone' => $data['phone']]);
+
         $patient->name = $data['name'];
 
         if (! empty($data['email'])) {
             $patient->email = $data['email'];
-        }
-
-        if ($user && ! $patient->user_id) {
-            $patient->user_id = $user->id;
         }
 
         $patient->save();
