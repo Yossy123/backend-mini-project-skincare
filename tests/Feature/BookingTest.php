@@ -167,6 +167,30 @@ class BookingTest extends TestCase
         ]);
     }
 
+    public function test_booking_code_has_a_long_unambiguous_random_part_and_lookup_ignores_case(): void
+    {
+        $date = Carbon::tomorrow();
+
+        $code = $this->actingAs($this->customerUser, 'sanctum')->postJson('/api/booking', [
+            'service_id' => $this->service->id,
+            'doctor_id' => $this->doctor->id,
+            'consultation_mode' => 'offline',
+            'date' => $date->format('Y-m-d'),
+            'start_time' => '10:00',
+            'name' => 'Code Patient',
+            'phone' => '+628199999999',
+        ])->assertCreated()->json('data.booking_code');
+
+        $this->assertMatchesRegularExpression(
+            '/^LMR-BKG-'.$date->format('Ymd').'-[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/',
+            $code
+        );
+
+        $this->getJson('/api/booking/lookup?booking_code='.urlencode(' '.strtolower($code).' '))
+            ->assertOk()
+            ->assertJsonPath('data.booking_code', $code);
+    }
+
     public function test_public_booking_lookup_does_not_expose_clinical_or_contact_data(): void
     {
         $appointment = Appointment::create([

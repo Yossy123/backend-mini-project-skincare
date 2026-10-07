@@ -24,6 +24,10 @@ class BookingService
 
     private const DEFAULT_SLOT_MINUTES = 60;
 
+    private const BOOKING_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+    private const BOOKING_CODE_RANDOM_LENGTH = 10;
+
     public function doctorWorksOn(Doctor $doctor, Carbon $date): bool
     {
         return in_array($date->dayOfWeek, $doctor->available_days ?? self::DEFAULT_AVAILABLE_DAYS);
@@ -265,10 +269,21 @@ class BookingService
         return $patient;
     }
 
+    /**
+     * Generate an unguessable booking code such as `LMR-BKG-20261008-K7QXM-3PZ9A`.
+     *
+     * The code is the only credential for the public booking lookup, so its random part
+     * carries 50 bits of entropy from a CSPRNG and skips look-alike characters (0/O, 1/I).
+     */
     private function generateBookingCode(Carbon $date): string
     {
         do {
-            $bookingCode = 'LMR-BKG-'.$date->format('Ymd').'-'.strtoupper(Str::random(4));
+            $random = '';
+            for ($i = 0; $i < self::BOOKING_CODE_RANDOM_LENGTH; $i++) {
+                $random .= self::BOOKING_CODE_ALPHABET[random_int(0, strlen(self::BOOKING_CODE_ALPHABET) - 1)];
+            }
+
+            $bookingCode = 'LMR-BKG-'.$date->format('Ymd').'-'.implode('-', str_split($random, 5));
         } while (Appointment::where('booking_code', $bookingCode)->exists());
 
         return $bookingCode;
