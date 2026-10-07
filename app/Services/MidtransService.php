@@ -90,6 +90,21 @@ class MidtransService
         return (array) $response->json();
     }
 
+    /**
+     * Force a still-pending gateway transaction (e.g. an unpaid virtual account) to expire.
+     *
+     * Returns true only when the gateway confirms the transaction is now expired.
+     */
+    public function expireTransaction(string $identity): bool
+    {
+        $response = $this->client()->baseUrl(rtrim((string) config('services.midtrans.api_base_url'), '/'))
+            ->post('/'.rawurlencode($identity).'/expire');
+
+        return $response->successful()
+            && in_array((string) $response->json('status_code'), ['200', '407'], true)
+            && strtolower((string) $response->json('transaction_status')) === 'expire';
+    }
+
     public function cancelSnapSession(string $token): bool
     {
         $response = $this->client()->withHeaders(['Authorization' => (string) config('services.midtrans.server_key')])

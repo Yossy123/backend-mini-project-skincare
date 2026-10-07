@@ -331,7 +331,7 @@ class OrderApiTest extends TestCase
         $response = $this->withHeader('Authorization', "Bearer {$token1}")
             ->getJson("/api/orders/{$order2->id}");
 
-        $response->assertStatus(403);
+        $response->assertNotFound();
     }
 
     public function test_repeated_idempotency_key_returns_the_same_order_without_double_deducting_stock(): void
