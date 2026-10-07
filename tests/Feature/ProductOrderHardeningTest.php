@@ -159,7 +159,7 @@ class ProductOrderHardeningTest extends TestCase
             'api.sandbox.midtrans.com/v2/'.$identity.'/status' => Http::sequence()
                 ->push($this->notification($order, 'pending'))
                 ->push($this->notification($order, 'expire')),
-            'api.sandbox.midtrans.com/v2/'.$identity.'/expire' => Http::response(['status_code' => '407', 'transaction_status' => 'expire']),
+            'api.sandbox.midtrans.com/v2/'.$identity.'/expire' => Http::response(['status_code' => '407', 'status_message' => 'Success, transaction has expired', 'transaction_status' => 'expire'], 407),
         ]);
 
         $count = app(OrderExpirationService::class)->expirePendingOrders();
@@ -303,6 +303,8 @@ class ProductOrderHardeningTest extends TestCase
         $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'EXPIRED']);
         $this->assertDatabaseHas('payments', ['order_id' => $order->id, 'status' => 'expired']);
         $this->assertDatabaseHas('products', ['id' => $order->orderItems[0]->product_id, 'stock' => 10]);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/snap/v1/transactions/existing-token/cancel')
+            && $request->header('Authorization') === ['Basic '.base64_encode('test-server-key:')]);
         Http::assertSentCount(2);
     }
 
