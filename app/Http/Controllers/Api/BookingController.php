@@ -131,10 +131,13 @@ class BookingController extends Controller
     public function lookup(Request $request): JsonResponse
     {
         $request->validate([
-            'booking_code' => 'required|string',
+            'booking_code' => 'required|string|max:64',
         ]);
 
-        $appointment = Appointment::where('booking_code', $request->booking_code)
+        // Codes are issued in upper case; accept them however the customer typed them.
+        $bookingCode = strtoupper(trim((string) $request->booking_code));
+
+        $appointment = Appointment::where('booking_code', $bookingCode)
             ->with(['patient', 'doctor', 'service', 'statusHistories'])
             ->firstOrFail();
 
