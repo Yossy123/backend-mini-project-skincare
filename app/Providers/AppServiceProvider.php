@@ -74,9 +74,12 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by($request->ip());
         });
 
-        // Inbound provider webhooks: limit forged-secret brute-force attempts.
+        // Inbound provider webhooks. The limit has to leave room for a busy shop: every order
+        // sends several status events from the same few courier IPs, and a rejected event is lost
+        // until the next tracking sync. The shared secret is 256 bits, so this cap is only a
+        // safety net against floods, not what protects against guessing.
         RateLimiter::for('webhook', function (Request $request) {
-            return Limit::perMinute(10)->by($request->ip());
+            return Limit::perMinute(120)->by($request->ip());
         });
     }
 }

@@ -148,6 +148,16 @@ class ShippingWebhookTest extends TestCase
         }
     }
 
+    public function test_webhook_limit_leaves_room_for_a_busy_shop_but_still_caps_floods(): void
+    {
+        // Far above the old 10/min, which dropped real courier events during busy periods.
+        foreach (range(1, 120) as $request) {
+            $this->postJson('/api/shipping/webhook/biteship', [])->assertOk();
+        }
+
+        $this->postJson('/api/shipping/webhook/biteship', [])->assertStatus(429);
+    }
+
     public function test_webhook_rejects_when_secret_is_missing(): void
     {
         Config::set('services.biteship.webhook_secret', '');
