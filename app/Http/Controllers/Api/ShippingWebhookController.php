@@ -27,7 +27,7 @@ class ShippingWebhookController extends Controller
         }
 
         if (! $this->webhookService->verifyWebhook($request)) {
-            Log::warning('Biteship webhook signature verification failed');
+            Log::warning('Biteship webhook signature verification failed', $this->webhookService->describeRejection($request));
 
             return response()->json(['message' => 'Invalid webhook signature'], 401);
         }

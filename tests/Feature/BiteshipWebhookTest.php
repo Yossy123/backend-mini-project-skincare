@@ -7,6 +7,7 @@ use App\Models\Shipment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class BiteshipWebhookTest extends TestCase
@@ -125,5 +126,23 @@ class BiteshipWebhookTest extends TestCase
         $this->withHeader('X-Biteship-Signature', 'invalid-token')
             ->postJson('/api/shipping/webhook/biteship', $payload)
             ->assertStatus(401);
+    }
+
+    public function test_a_rejected_webhook_is_logged_with_header_details_but_never_the_secret(): void
+    {
+        Log::spy();
+
+        $this->withHeader('X-Biteship-Signature', 'wrong-value-123')
+            ->postJson('/api/shipping/webhook/biteship', ['event' => 'order.status', 'status' => 'delivered'])
+            ->assertStatus(401);
+
+        Log::shouldHaveReceived('warning')->withArgs(function (string $message, array $context = []): bool {
+            return $message === 'Biteship webhook signature verification failed'
+                && $context['received_header'] === 'X-Biteship-Signature'
+                && $context['received_length'] === strlen('wrong-value-123')
+                && $context['expected_length'] === strlen('test-webhook-secret')
+                && ! str_contains(json_encode($context), 'test-webhook-secret')
+                && ! str_contains(json_encode($context), 'wrong-value-123');
+        })->once();
     }
 }

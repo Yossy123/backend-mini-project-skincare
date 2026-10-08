@@ -38,6 +38,35 @@ class BiteshipWebhookService
             return false;
         }
 
+        $received = $this->receivedSignature($request, $signatureKey);
+
+        return $received !== '' && hash_equals($secret, $received);
+    }
+
+    /**
+     * Describe why a webhook was rejected without revealing the secret or the received value.
+     *
+     * @return array{header_name: string, received_header: ?string, received_length: int, expected_length: int, headers_sent: array<int, string>}
+     */
+    public function describeRejection(Request $request): array
+    {
+        $signatureKey = $this->client->getWebhookSignatureKey() ?: 'X-Biteship-Signature';
+        $received = $this->receivedSignature($request, $signatureKey);
+
+        return [
+            'header_name' => $signatureKey,
+            'received_header' => $request->hasHeader($signatureKey) ? $signatureKey : null,
+            'received_length' => strlen($received),
+            'expected_length' => strlen($this->client->getWebhookSecret()),
+            'headers_sent' => array_values(array_filter(
+                array_keys($request->headers->all()),
+                fn (string $name): bool => ! in_array($name, ['host', 'content-length', 'content-type', 'accept', 'accept-encoding', 'user-agent', 'x-forwarded-for', 'x-forwarded-proto', 'x-real-ip', 'connection'], true)
+            )),
+        ];
+    }
+
+    private function receivedSignature(Request $request, string $signatureKey): string
+    {
         $received = (string) (
             $request->header($signatureKey)
             ?: $request->header('X-Biteship-Signature')
@@ -46,9 +75,7 @@ class BiteshipWebhookService
             ?: ''
         );
 
-        $received = trim((string) preg_replace('/^Bearer\s+/i', '', $received));
-
-        return $received !== '' && hash_equals($secret, $received);
+        return trim((string) preg_replace('/^Bearer\s+/i', '', $received));
     }
 
     /**
