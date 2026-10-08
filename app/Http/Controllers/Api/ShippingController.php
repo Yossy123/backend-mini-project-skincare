@@ -71,6 +71,7 @@ class ShippingController extends Controller
 
         return response()->json([
             'data' => $rates,
+            'meta' => $this->shippingService->instantAvailability($validated['destination'], $request->user()),
         ], 200);
     }
 

@@ -136,6 +136,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         Route::post('/{id}/deliver', [AdminOrderController::class, 'deliver']);
         Route::post('/{id}/complete', [AdminOrderController::class, 'complete']);
         Route::post('/{id}/cancel', [AdminOrderController::class, 'cancel']);
+        Route::post('/{id}/rebook-courier', [AdminOrderController::class, 'rebookCourier']);
         Route::post('/{id}/refund', [AdminOperationsController::class, 'refund']);
     });
 

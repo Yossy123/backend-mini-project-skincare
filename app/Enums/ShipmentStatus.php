@@ -13,4 +13,7 @@ enum ShipmentStatus: string
     case Delivered = 'delivered';
     case Cancelled = 'cancelled';
     case Returned = 'returned';
+
+    /** An instant courier (Gojek/Grab) booking that found no driver; the order needs a new booking. */
+    case CourierNotFound = 'courier_not_found';
 }

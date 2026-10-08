@@ -133,7 +133,7 @@ class PaymentRefundService
             $hasLeftWarehouse = in_array(strtoupper($order->status), OrderStatus::leftWarehouseValues(), true)
                 || $order->shipment?->shipped_at !== null
                 || in_array(strtolower((string) $order->shipment?->status), ['shipped', 'delivered', 'returned'], true);
-            if ($isFullRefund && ! $hasLeftWarehouse && $order->shipment?->biteship_order_id && $order->shipment->status !== ShipmentStatus::Cancelled->value) {
+            if ($isFullRefund && ! $hasLeftWarehouse && $order->shipment?->biteship_order_id && ! in_array($order->shipment->status, [ShipmentStatus::Cancelled->value, ShipmentStatus::CourierNotFound->value], true)) {
                 throw ValidationException::withMessages(['shipment' => ['Cancel the courier booking before issuing a full refund.']]);
             }
             $refundKey = 'REF-'.$order->id.'-'.hash('sha256', $requestKey);

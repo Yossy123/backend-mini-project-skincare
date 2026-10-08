@@ -7,9 +7,14 @@ use Illuminate\Support\Facades\Log;
 
 class BiteshipShipmentService
 {
+    protected InstantCourierPolicy $instantPolicy;
+
     public function __construct(
-        protected BiteshipClient $client
-    ) {}
+        protected BiteshipClient $client,
+        ?InstantCourierPolicy $instantPolicy = null
+    ) {
+        $this->instantPolicy = $instantPolicy ?? new InstantCourierPolicy;
+    }
 
     /**
      * Create an external courier booking / shipment order.
@@ -34,8 +39,8 @@ class BiteshipShipmentService
         $courier = strtolower(trim((string) ($payload['courier'] ?? '')));
         $service = strtolower(trim((string) ($payload['service'] ?? '')));
 
-        if (in_array($courier, ['grab', 'gojek'], true) && ! (bool) config('services.biteship.instant_enabled', false)) {
-            Log::warning('Instant courier booking skipped because it is not enabled.', ['courier' => $courier]);
+        if (InstantCourierPolicy::isInstant($courier) && ! $this->instantPolicy->isEnabled()) {
+            Log::warning('Instant courier booking skipped because it is not enabled or the store pickup point is not set.', ['courier' => $courier]);
 
             return [
                 'success' => false,
@@ -43,6 +48,23 @@ class BiteshipShipmentService
                 'waybill_id' => null,
                 'tracking_id' => null,
                 'status' => 'disabled',
+                'courier' => strtoupper($courier),
+                'service' => strtoupper($service),
+                'price' => 0.0,
+                'raw' => [],
+            ];
+        }
+
+        if (InstantCourierPolicy::isInstant($courier) && ! $this->hasUsablePin($destination)) {
+            // A driver is sent to the pin, so a missing or implausible pin must never be guessed.
+            Log::error('Instant courier booking refused: the delivery address has no usable map pin.', ['courier' => $courier]);
+
+            return [
+                'success' => false,
+                'order_id' => '',
+                'waybill_id' => null,
+                'tracking_id' => null,
+                'status' => 'failed',
                 'courier' => strtoupper($courier),
                 'service' => strtoupper($service),
                 'price' => 0.0,
@@ -231,5 +253,15 @@ class BiteshipShipmentService
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $destination
+     */
+    private function hasUsablePin(array $destination): bool
+    {
+        return isset($destination['latitude'], $destination['longitude'])
+            && is_numeric($destination['latitude']) && is_numeric($destination['longitude'])
+            && InstantCourierPolicy::isWithinIndonesia((float) $destination['latitude'], (float) $destination['longitude']);
     }
 }

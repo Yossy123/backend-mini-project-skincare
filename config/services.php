@@ -43,8 +43,9 @@ return [
         'origin_address' => env('BITESHIP_ORIGIN_ADDRESS', 'Jl. Kebayoran Lama No. 12, Jakarta Selatan'),
         'origin_contact_name' => env('BITESHIP_ORIGIN_CONTACT_NAME', 'NOBYDERM Store'),
         'origin_contact_phone' => env('BITESHIP_ORIGIN_CONTACT_PHONE', '081234567890'),
-        'origin_latitude' => env('BITESHIP_ORIGIN_LATITUDE'),
-        'origin_longitude' => env('BITESHIP_ORIGIN_LONGITUDE'),
+        // An empty value (KEY=) must stay null; casting '' would turn it into 0.0.
+        'origin_latitude' => is_numeric(env('BITESHIP_ORIGIN_LATITUDE')) ? (float) env('BITESHIP_ORIGIN_LATITUDE') : null,
+        'origin_longitude' => is_numeric(env('BITESHIP_ORIGIN_LONGITUDE')) ? (float) env('BITESHIP_ORIGIN_LONGITUDE') : null,
         'instant_enabled' => (bool) env('BITESHIP_INSTANT_ENABLED', false),
         'timeout' => (int) env('BITESHIP_TIMEOUT', 10),
         'free_shipping_min_spend' => (float) env('SHIPPING_FREE_MIN_SPEND', 500000),

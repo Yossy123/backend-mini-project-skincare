@@ -18,6 +18,7 @@ class BiteshipResponseMapper
             'dropping_off', 'picked', 'picking_up', 'in_transit', 'on_hold', 'courier_assigned' => ShipmentStatus::Shipped->value,
             'cancelled', 'rejected' => ShipmentStatus::Cancelled->value,
             'returned', 'returning' => ShipmentStatus::Returned->value,
+            'courier_not_found' => ShipmentStatus::CourierNotFound->value,
             'allocated', 'confirmed', 'placed', 'scheduled' => ShipmentStatus::Processing->value,
             default => $status,
         };

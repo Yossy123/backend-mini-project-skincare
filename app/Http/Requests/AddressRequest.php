@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Shipping\InstantCourierPolicy;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
 class AddressRequest extends FormRequest
@@ -35,6 +38,27 @@ class AddressRequest extends FormRequest
     }
 
     /**
+     * A pin that is not in Indonesia (a typo, or a placeholder such as 0,0) would send a courier
+     * to the wrong place and price the trip wrongly.
+     *
+     * @return array<int, Closure(Validator): void>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $latitude = $this->input('latitude');
+                $longitude = $this->input('longitude');
+
+                if (is_numeric($latitude) && is_numeric($longitude)
+                    && ! InstantCourierPolicy::isWithinIndonesia((float) $latitude, (float) $longitude)) {
+                    $validator->errors()->add('latitude', 'Titik lokasi harus berada di wilayah Indonesia.');
+                }
+            },
+        ];
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
@@ -50,8 +74,8 @@ class AddressRequest extends FormRequest
             'city' => ['required', 'string', 'max:255'],
             'district' => ['required', 'string', 'max:255'],
             'postal_code' => ['required', 'string', 'max:10'],
-            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90', 'required_with:longitude'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180', 'required_with:latitude'],
             'biteship_area_id' => ['nullable', 'string', 'max:100'],
             'address' => ['required', 'string'],
             'address_line' => ['nullable', 'string'],

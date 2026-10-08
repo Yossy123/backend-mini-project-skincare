@@ -164,6 +164,29 @@ class BiteshipWebhookService
                 return;
             }
 
+            // An instant booking found no driver. Only meaningful while still waiting for one; the order stays
+            // PROCESSING and an admin decides whether to book a new courier.
+            if ($newStatus === ShipmentStatus::CourierNotFound->value) {
+                if (in_array($oldShipmentStatus, [ShipmentStatus::Pending->value, ShipmentStatus::Processing->value], true)) {
+                    $shipment->update(['status' => ShipmentStatus::CourierNotFound->value]);
+                    $updated = true;
+
+                    if ($order) {
+                        OrderAuditLog::create([
+                            'order_id' => $order->id,
+                            'admin_id' => null,
+                            'action' => 'COURIER_NOT_FOUND',
+                            'previous_status' => strtoupper($order->status),
+                            'new_status' => strtoupper($order->status),
+                            'note' => 'Biteship tidak menemukan driver untuk pesanan ini. Pesan ulang kurir atau batalkan pesanan.',
+                            'metadata' => ['courier' => $shipment->courier, 'biteship_order_id' => $shipment->biteship_order_id],
+                        ]);
+                    }
+                }
+
+                return;
+            }
+
             $statusRank = [
                 ShipmentStatus::Pending->value => 0,
                 ShipmentStatus::Processing->value => 1,

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Orders\AdminOrderQueryService;
+use App\Services\Orders\CourierRebookService;
 use App\Services\Orders\OrderAuditService;
 use App\Services\Orders\OrderCancellationService;
 use App\Services\Orders\OrderStatusService;
@@ -55,6 +56,11 @@ class AdminOrderService
      *
      * @throws ValidationException
      */
+    public function rebookCourier(int $orderId, User $admin): Order
+    {
+        return app(CourierRebookService::class)->rebook($orderId, $admin);
+    }
+
     public function processOrder(int $orderId, User $admin): Order
     {
         return $this->statusService->processOrder($orderId, $admin);

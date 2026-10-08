@@ -5,14 +5,20 @@ namespace App\Services;
 use App\Contracts\ShippingProviderInterface;
 use App\Models\Address;
 use App\Models\User;
+use App\Services\Shipping\InstantCourierPolicy;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 class ShippingService
 {
+    protected InstantCourierPolicy $instantPolicy;
+
     public function __construct(
-        protected ShippingProviderInterface $shippingProvider
-    ) {}
+        protected ShippingProviderInterface $shippingProvider,
+        ?InstantCourierPolicy $instantPolicy = null
+    ) {
+        $this->instantPolicy = $instantPolicy ?? new InstantCourierPolicy;
+    }
 
     /**
      * Calculate and aggregate normalized shipping rates from supported couriers via Biteship.
@@ -42,13 +48,6 @@ class ShippingService
         ?User $user = null,
         ?array $items = null
     ): array {
-        if (! (bool) config('services.biteship.instant_enabled', false)) {
-            $instantCouriers = ['grab', 'gojek'];
-            $couriers = is_array($couriers)
-                ? array_values(array_diff(array_map('strtolower', $couriers), $instantCouriers))
-                : $couriers;
-        }
-
         if ($weightInGrams <= 0) {
             throw ValidationException::withMessages([
                 'weight' => ['Package weight must be at least 1 gram.'],
@@ -62,6 +61,18 @@ class ShippingService
         }
 
         $destParams = $this->resolveDestinationParams($destination, $user);
+
+        // Gojek and Grab are priced and dispatched by coordinates: offer them only when the store is set
+        // up for instant delivery and the customer's address has a map pin.
+        $couriers = $this->normalizeCouriers($couriers);
+        $hasPin = isset($destParams['destination_latitude'], $destParams['destination_longitude']);
+        if (is_array($couriers) && ! ($hasPin && $this->instantPolicy->isEnabled())) {
+            $couriers = array_values(array_filter($couriers, fn (string $courier): bool => ! InstantCourierPolicy::isInstant($courier)));
+
+            if ($couriers === []) {
+                return [];
+            }
+        }
 
         $destKey = ! empty($destParams['destination_postal_code'])
             ? (string) $destParams['destination_postal_code']
@@ -91,6 +102,47 @@ class ShippingService
 
             return $rates;
         });
+    }
+
+    /**
+     * What the storefront needs to explain a missing Gojek/Grab option.
+     *
+     * @return array{instant_enabled: bool, destination_has_pin: bool}
+     */
+    public function instantAvailability(mixed $destination, ?User $user = null): array
+    {
+        $hasPin = false;
+
+        if ($destination instanceof Address || is_numeric($destination)) {
+            try {
+                $params = $this->resolveDestinationParams($destination, $user);
+                $hasPin = isset($params['destination_latitude'], $params['destination_longitude']);
+            } catch (ValidationException) {
+                $hasPin = false;
+            }
+        }
+
+        return [
+            'instant_enabled' => $this->instantPolicy->isEnabled(),
+            'destination_has_pin' => $hasPin,
+        ];
+    }
+
+    /**
+     * Turn a courier selection (array, comma/space separated string or null) into a lowercase list.
+     * Null stays null, meaning "the provider's default couriers".
+     *
+     * @return array<int, string>|null
+     */
+    protected function normalizeCouriers(mixed $couriers): ?array
+    {
+        if ($couriers === null) {
+            return null;
+        }
+
+        $list = is_array($couriers) ? $couriers : preg_split('/[\s,:]+/', (string) $couriers, -1, PREG_SPLIT_NO_EMPTY);
+
+        return array_values(array_filter(array_map(fn ($courier) => strtolower(trim((string) $courier)), $list)));
     }
 
     /**
@@ -193,10 +245,11 @@ class ShippingService
     {
         $postalCode = trim((string) $address->postal_code);
 
-        $coordinates = $address->latitude !== null && $address->longitude !== null ? [
-            'destination_latitude' => (float) $address->latitude,
-            'destination_longitude' => (float) $address->longitude,
-        ] : [];
+        $coordinates = $address->latitude !== null && $address->longitude !== null
+            && InstantCourierPolicy::isWithinIndonesia((float) $address->latitude, (float) $address->longitude) ? [
+                'destination_latitude' => (float) $address->latitude,
+                'destination_longitude' => (float) $address->longitude,
+            ] : [];
 
         if (! empty($address->biteship_area_id)) {
             return array_merge([
@@ -216,13 +269,13 @@ class ShippingService
             if (! empty($areas)) {
                 $first = $areas[0];
                 if (! empty($first['zip_code'])) {
-                    return [
+                    return array_merge([
                         'destination_postal_code' => (int) $first['zip_code'],
                         'destination_area_id' => (string) ($first['id'] ?? ''),
-                    ];
+                    ], $coordinates);
                 }
                 if (! empty($first['id'])) {
-                    return ['destination_area_id' => (string) $first['id']];
+                    return array_merge(['destination_area_id' => (string) $first['id']], $coordinates);
                 }
             }
         }

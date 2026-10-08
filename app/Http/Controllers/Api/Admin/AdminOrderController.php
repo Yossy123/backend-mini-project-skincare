@@ -116,6 +116,20 @@ class AdminOrderController extends Controller
     }
 
     /**
+     * Book a new courier after the previous booking found no driver.
+     */
+    public function rebookCourier(int $id, Request $request): JsonResponse
+    {
+        $order = $this->adminOrderService->rebookCourier($id, $request->user());
+        $order->append('allowed_actions');
+
+        return response()->json([
+            'message' => "Kurir untuk Order #{$order->id} sedang dipesan ulang.",
+            'data' => $order,
+        ], 200);
+    }
+
+    /**
      * Cancel order and restore inventory stock.
      */
     public function cancel(int $id, Request $request): JsonResponse

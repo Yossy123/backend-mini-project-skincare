@@ -79,7 +79,10 @@ class OrderCancellationService
             $previousStatus = strtoupper($order->status);
 
             // Idempotent Inventory Stock Restoration
-            if ($order->stock_restored_at === null && ! $order->shipment?->biteship_order_id) {
+            $hasActiveBooking = $order->shipment?->biteship_order_id
+                && $order->shipment->status !== ShipmentStatus::CourierNotFound->value;
+
+            if ($order->stock_restored_at === null && ! $hasActiveBooking) {
                 foreach ($order->orderItems as $item) {
                     $product = Product::where('id', $item->product_id)->lockForUpdate()->first();
                     if ($product) {
@@ -147,7 +150,7 @@ class OrderCancellationService
 
         $biteshipOrderId = (string) ($shipment->biteship_order_id ?? '');
 
-        if ($biteshipOrderId !== '') {
+        if ($biteshipOrderId !== '' && $shipment->status !== ShipmentStatus::CourierNotFound->value) {
             try {
                 $result = $this->shippingProvider->cancelShipment($biteshipOrderId, 'others');
 

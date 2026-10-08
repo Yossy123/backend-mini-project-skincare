@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,9 +15,13 @@ class Order extends Model
 {
     /** Aliases of {@see OrderStatus} kept for existing callers (UPPERCASE, persisted as-is). */
     public const STATUS_PENDING_PAYMENT = OrderStatus::PendingPayment->value;
+
     public const STATUS_PAID = OrderStatus::Paid->value;
+
     public const STATUS_PROCESSING = OrderStatus::Processing->value;
+
     public const STATUS_SHIPPED = OrderStatus::Shipped->value;
+
     public const STATUS_DELIVERED = OrderStatus::Delivered->value;
 
     /** @use HasFactory<OrderFactory> */
@@ -185,6 +190,11 @@ class Order extends Model
 
         if ($this->canBeCompleted()) {
             $actions[] = 'complete';
+        }
+
+        if (strtoupper($this->status) === self::STATUS_PROCESSING
+            && $this->shipment?->status === ShipmentStatus::CourierNotFound->value) {
+            $actions[] = 'rebook_courier';
         }
 
         if ($this->canBeCancelled()) {

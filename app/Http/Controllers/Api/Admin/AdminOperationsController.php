@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Enums\OrderStatus;
+use App\Enums\ShipmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\Shipment;
 use App\Services\OrderExpirationService;
 use App\Services\PaymentRefundService;
 use App\Services\ShipmentTrackingSyncService;
@@ -112,6 +114,7 @@ class AdminOperationsController extends Controller
                 'out_of_stock_products' => $outOfStock,
                 'recent_refunds_count' => $recentRefunds,
                 'payments_requiring_review' => Payment::where('requires_review', true)->count(),
+                'shipments_without_courier' => Shipment::where('status', ShipmentStatus::CourierNotFound->value)->count(),
             ],
         ], 200);
     }
