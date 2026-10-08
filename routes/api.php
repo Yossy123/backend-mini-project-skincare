@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\MyAppointmentsController;
 use App\Http\Controllers\Api\MyPatientProfileController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PasswordController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ShippingController;
@@ -41,11 +42,14 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:auth');
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth');
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+    Route::post('/forgot-password', [PasswordController::class, 'forgot'])->middleware('throttle:auth');
+    Route::post('/reset-password', [PasswordController::class, 'reset'])->middleware('throttle:auth');
 });
 
 // Authenticated User Profile
 Route::get('/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
 Route::patch('/me', [AuthController::class, 'updateMe'])->middleware('auth:sanctum');
+Route::put('/me/password', [PasswordController::class, 'change'])->middleware(['auth:sanctum', 'throttle:password']);
 Route::get('/my-profile/health', [MyPatientProfileController::class, 'show'])->middleware('auth:sanctum');
 
 // Customer Addresses (CRUD)
@@ -197,6 +201,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         Route::post('/', [AdminDoctorController::class, 'store']);
         Route::patch('/{id}', [AdminDoctorController::class, 'update']);
         Route::patch('/{id}/toggle', [AdminDoctorController::class, 'toggle']);
+        Route::post('/{id}/reset-password', [AdminDoctorController::class, 'resetPassword']);
     });
 
     // Advanced Operations & Background Sync

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AdminDoctorPasswordRequest;
 use App\Models\Doctor;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -119,6 +120,29 @@ class AdminDoctorController extends Controller
             'success' => true,
             'message' => 'Data dokter berhasil diperbarui.',
             'data' => $doctor->load('user'),
+        ]);
+    }
+
+    /**
+     * Set a new password for a doctor's login account and sign them out everywhere.
+     */
+    public function resetPassword(AdminDoctorPasswordRequest $request, int $id): JsonResponse
+    {
+        $doctor = Doctor::with('user')->findOrFail($id);
+
+        if (! $doctor->user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Dokter ini belum memiliki akun login.',
+            ], 422);
+        }
+
+        $doctor->user->forceFill(['password' => $request->validated('password')])->save();
+        $doctor->user->tokens()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Password {$doctor->name} berhasil diubah. Semua sesi login dokter telah dikeluarkan.",
         ]);
     }
 
