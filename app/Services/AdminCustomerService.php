@@ -10,6 +10,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class AdminCustomerService
 {
@@ -238,6 +239,18 @@ class AdminCustomerService
                 })
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            // Orders, payments and shipments cascade from the user, so deleting a customer who ever
+            // ordered would erase financial records. Such accounts can only be deactivated.
+            $ordersCount = $customer->orders()->count();
+            if ($ordersCount > 0) {
+                throw ValidationException::withMessages([
+                    'customer' => [
+                        "Customer '{$customer->name}' tidak bisa dihapus karena memiliki {$ordersCount} order beserta data pembayarannya. ".
+                        'Nonaktifkan akunnya agar tidak bisa login tanpa menghapus catatan transaksi.',
+                    ],
+                ]);
+            }
 
             $name = $customer->name;
             $customer->tokens()->delete();

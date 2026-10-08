@@ -69,6 +69,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Storefront URL
+    |--------------------------------------------------------------------------
+    |
+    | Public base URL of the Next.js storefront, used to build links in emails
+    | (for example password reset). Any trailing slash is removed.
+    |
+    */
+
+    'frontend_url' => rtrim((string) env('FRONTEND_URL', 'http://localhost:3000'), '/'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

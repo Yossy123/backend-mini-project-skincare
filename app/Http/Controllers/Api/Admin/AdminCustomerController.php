@@ -51,7 +51,7 @@ class AdminCustomerController extends Controller
         $name = $this->customerService->deleteCustomer($id);
 
         return response()->json([
-            'message' => "Customer {$name} and associated records have been permanently deleted.",
+            'message' => "Customer {$name} has been permanently deleted.",
         ], 200);
     }
 

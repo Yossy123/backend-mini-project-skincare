@@ -208,18 +208,45 @@ class AdminCustomerManagementTest extends TestCase
         ]);
     }
 
-    /** Admin permanently deletes customer accounts, including cascade dependent records. */
-    public function test_admin_can_permanently_delete_customer_account(): void
+    /** Admin can permanently delete a customer who never ordered. */
+    public function test_admin_can_permanently_delete_a_customer_without_orders(): void
     {
-        $order = $this->createOrder('PAID');
-
         $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
             ->deleteJson("/api/admin/customers/{$this->customer->id}");
 
         $response->assertStatus(200)
-            ->assertJsonPath('message', "Customer {$this->customer->name} and associated records have been permanently deleted.");
+            ->assertJsonPath('message', "Customer {$this->customer->name} has been permanently deleted.");
 
         $this->assertDatabaseMissing('users', ['id' => $this->customer->id]);
-        $this->assertDatabaseMissing('orders', ['id' => $order->id]);
         $this->assertDatabaseMissing('customer_audit_logs', ['customer_id' => $this->customer->id]);
-    }}
+    }
+
+    /** Deleting would cascade to orders, payments and shipments, so it must be refused. */
+    public function test_a_customer_with_orders_cannot_be_deleted_and_keeps_all_financial_records(): void
+    {
+        $order = $this->createOrder('PAID');
+
+        $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->deleteJson("/api/admin/customers/{$this->customer->id}")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('customer');
+
+        $this->assertDatabaseHas('users', ['id' => $this->customer->id]);
+        $this->assertDatabaseHas('orders', ['id' => $order->id]);
+        $this->assertDatabaseHas('payments', ['order_id' => $order->id]);
+        $this->assertDatabaseHas('order_items', ['order_id' => $order->id]);
+    }
+
+    /** The refused customer can still be deactivated instead, which revokes login. */
+    public function test_a_customer_with_orders_can_be_deactivated_instead(): void
+    {
+        $this->createOrder('PAID');
+
+        $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->patchJson("/api/admin/customers/{$this->customer->id}/toggle")
+            ->assertOk();
+
+        $this->assertFalse($this->customer->fresh()->is_active);
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+    }
+}
