@@ -5,6 +5,7 @@ namespace App\Services\Orders;
 use App\Models\Order;
 use App\Models\ShipmentEvent;
 use App\Notifications\ShipmentUpdateNotification;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -22,22 +23,25 @@ class ShipmentTimelineService
     public function record(Order $order, string $status, string $title, ?string $message = null): ?ShipmentEvent
     {
         try {
-            $latest = ShipmentEvent::where('order_id', $order->id)->latest('occurred_at')->latest('id')->first();
-            if ($latest && $latest->status === $status && $latest->title === $title) {
-                return null;
-            }
+            // A nested transaction is a savepoint, so a failure here cannot poison the caller's transaction (PostgreSQL aborts it otherwise).
+            return DB::transaction(function () use ($order, $status, $title, $message): ?ShipmentEvent {
+                $latest = ShipmentEvent::where('order_id', $order->id)->latest('occurred_at')->latest('id')->first();
+                if ($latest && $latest->status === $status && $latest->title === $title) {
+                    return null;
+                }
 
-            $event = ShipmentEvent::create([
-                'order_id' => $order->id,
-                'status' => $status,
-                'title' => $title,
-                'message' => $message,
-                'occurred_at' => now(),
-            ]);
+                $event = ShipmentEvent::create([
+                    'order_id' => $order->id,
+                    'status' => $status,
+                    'title' => $title,
+                    'message' => $message,
+                    'occurred_at' => now(),
+                ]);
 
-            $order->user?->notify(new ShipmentUpdateNotification($event));
+                $order->user?->notify(new ShipmentUpdateNotification($event));
 
-            return $event;
+                return $event;
+            });
         } catch (Throwable $exception) {
             Log::warning('Could not record shipment timeline step', [
                 'order_id' => $order->id,

@@ -68,6 +68,7 @@ Route::post('/checkout/validate', [CheckoutController::class, 'validate'])->midd
 // Orders & Payments
 Route::apiResource('orders', OrderController::class)->only(['index', 'store', 'show'])->middleware('auth:sanctum');
 Route::post('/orders/{id}/cancel', [OrderController::class, 'cancel'])->middleware('auth:sanctum');
+Route::post('/orders/{id}/confirm-received', [OrderController::class, 'confirmReceived'])->middleware('auth:sanctum');
 Route::post('/payments', [PaymentController::class, 'store'])->middleware('auth:sanctum');
 Route::post('/webhooks/midtrans', [PaymentController::class, 'webhook']);
 

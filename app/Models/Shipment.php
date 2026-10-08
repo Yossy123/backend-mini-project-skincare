@@ -26,6 +26,7 @@ class Shipment extends Model
         'service',
         'tracking_number',
         'status',
+        'courier_stage',
         'shipped_at',
         'delivered_at',
     ];

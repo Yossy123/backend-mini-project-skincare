@@ -166,7 +166,7 @@ class BiteshipWebhookTest extends TestCase
         $token = $customer->createToken('t')->plainTextToken;
         $this->withHeader('Authorization', "Bearer {$token}")->getJson("/api/orders/{$order->id}")
             ->assertOk()
-            ->assertJsonPath('data.tracking_events.0.title', 'Pesanan dalam pengiriman')
+            ->assertJsonPath('data.tracking_events.0.title', 'Kurir menuju toko')
             ->assertJsonPath('data.tracking_events.1.title', 'Paket telah sampai');
     }
 
@@ -193,5 +193,27 @@ class BiteshipWebhookTest extends TestCase
         $this->actingAs($customer, 'sanctum')->postJson('/api/my-notifications/read-all')->assertOk();
         $this->actingAs($customer, 'sanctum')->getJson('/api/my-notifications')->assertJsonPath('meta.unread_count', 0);
         $this->assertSame(1, $other->unreadNotifications()->count());
+    }
+
+    public function test_each_driver_step_is_told_to_the_customer_in_its_own_words(): void
+    {
+        $customer = User::factory()->create();
+        $order = Order::factory()->create(['user_id' => $customer->id, 'status' => 'PROCESSING', 'shipping_courier' => 'GRAB', 'shipping_service' => 'INSTANT']);
+        $shipment = Shipment::create(['order_id' => $order->id, 'courier' => 'GRAB', 'service' => 'INSTANT', 'status' => 'processing', 'biteship_order_id' => 'bit_stage_1']);
+        $send = fn (string $status) => $this->withHeader('X-Biteship-Signature', 'test-webhook-secret')
+            ->postJson('/api/shipping/webhook/biteship', ['order_id' => 'bit_stage_1', 'status' => $status])->assertOk();
+
+        $send('allocated');
+        $send('picking_up');
+        $send('picking_up');
+        $send('picked');
+        $send('dropping_off');
+        $send('delivered');
+
+        $this->assertSame(
+            ['Kurir ditemukan', 'Kurir menuju toko', 'Paket sudah diambil', 'Kurir menuju alamatmu', 'Paket telah sampai'],
+            ShipmentEvent::where('order_id', $order->id)->orderBy('id')->pluck('title')->all()
+        );
+        $this->assertSame('delivered', $shipment->fresh()->courier_stage);
     }
 }

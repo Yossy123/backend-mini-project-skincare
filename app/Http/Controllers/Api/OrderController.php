@@ -7,6 +7,7 @@ use App\Http\Requests\OrderStoreRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Services\Orders\CustomerOrderCancellationService;
+use App\Services\Orders\OrderCompletionService;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ class OrderController extends Controller
 {
     public function __construct(
         protected OrderService $orderService,
-        protected CustomerOrderCancellationService $cancellationService
+        protected CustomerOrderCancellationService $cancellationService,
+        protected OrderCompletionService $completionService
     ) {}
 
     /**
@@ -41,6 +43,14 @@ class OrderController extends Controller
     public function cancel(Request $request, int $id): OrderResource
     {
         return new OrderResource($this->cancellationService->cancelUnpaidOrder($id, $request->user()));
+    }
+
+    /**
+     * Confirm that one of the authenticated user's own delivered orders arrived.
+     */
+    public function confirmReceived(Request $request, int $id): OrderResource
+    {
+        return new OrderResource($this->completionService->confirmReceived($id, $request->user()));
     }
 
     /**

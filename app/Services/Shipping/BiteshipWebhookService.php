@@ -14,6 +14,21 @@ use Illuminate\Support\Facades\Log;
 
 class BiteshipWebhookService
 {
+    /**
+     * What each driver step Biteship reports means to the customer: [title, message].
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const DRIVER_STAGES = [
+        'allocated' => ['Kurir ditemukan', 'Kurir :courier sudah ditemukan dan akan segera menjemput paketmu.'],
+        'courier_assigned' => ['Kurir ditugaskan', 'Kurir :courier sudah ditugaskan untuk paketmu.'],
+        'picking_up' => ['Kurir menuju toko', 'Driver :courier sedang menuju toko untuk mengambil paketmu.'],
+        'picked' => ['Paket sudah diambil', 'Paketmu sudah diambil kurir :courier dari toko.'],
+        'dropping_off' => ['Kurir menuju alamatmu', 'Paketmu sedang diantar kurir :courier ke alamatmu.'],
+        'in_transit' => ['Paket dalam perjalanan', 'Paketmu sedang dalam perjalanan bersama kurir :courier.'],
+        'on_hold' => ['Pengiriman tertahan', 'Pengiriman paketmu sempat tertahan. Kurir :courier akan melanjutkannya segera.'],
+    ];
+
     public function __construct(
         protected BiteshipClient $client,
         protected BiteshipResponseMapper $mapper
@@ -67,9 +82,17 @@ class BiteshipWebhookService
     }
 
     /**
+     * Whether Biteship reported a driver step we have not told the customer about yet.
+     */
+    private function isNewCourierStage(Shipment $shipment, string $rawStatus): bool
+    {
+        return $rawStatus !== '' && $rawStatus !== $shipment->courier_stage && isset(self::DRIVER_STAGES[$rawStatus]);
+    }
+
+    /**
      * Tell the customer, in plain words, which step their parcel just reached.
      */
-    private function recordTimeline(Order $order, Shipment $shipment, string $status): void
+    private function recordTimeline(Order $order, Shipment $shipment, string $status, string $rawStatus = ''): void
     {
         $courier = $shipment->courier ?: 'kurir';
         $steps = [
@@ -81,8 +104,12 @@ class BiteshipWebhookService
             ShipmentStatus::Returned->value => ['Paket dikembalikan', 'Paketmu dikembalikan ke toko. Tim kami akan menghubungimu untuk langkah berikutnya.'],
         ];
 
-        if (isset($steps[$status])) {
-            app(ShipmentTimelineService::class)->record($order, $status, $steps[$status][0], $steps[$status][1]);
+        $step = in_array($status, [ShipmentStatus::Processing->value, ShipmentStatus::Shipped->value], true) && isset(self::DRIVER_STAGES[$rawStatus])
+            ? [self::DRIVER_STAGES[$rawStatus][0], str_replace(':courier', $courier, self::DRIVER_STAGES[$rawStatus][1])]
+            : ($steps[$status] ?? null);
+
+        if ($step !== null) {
+            app(ShipmentTimelineService::class)->record($order, $status, $step[0], $step[1]);
         }
     }
 
@@ -108,6 +135,7 @@ class BiteshipWebhookService
      *     waybill_id: ?string,
      *     tracking_id: ?string,
      *     status: string,
+     *     raw_status: string,
      *     note: ?string,
      *     updated_at: string
      * }
@@ -131,6 +159,7 @@ class BiteshipWebhookService
             'waybill_id' => ! empty($waybillId) ? $waybillId : null,
             'tracking_id' => ! empty($trackingId) ? $trackingId : null,
             'status' => $this->mapper->mapBiteshipStatus($statusRaw),
+            'raw_status' => strtolower(trim($statusRaw)),
             'note' => ! empty($note) ? $note : null,
             'updated_at' => (string) ($payload['updated_at'] ?? now()->toIso8601String()),
         ];
@@ -262,6 +291,12 @@ class BiteshipWebhookService
                     'tracking_number' => $normalized['waybill_id'] ?: $shipment->tracking_number,
                 ]);
 
+                // Biteship folds several driver steps into one shipment status; tell the customer about each of them.
+                if ($order && $this->isNewCourierStage($shipment, $normalized['raw_status'])) {
+                    $shipment->update(['courier_stage' => $normalized['raw_status']]);
+                    $this->recordTimeline($order, $shipment, $newStatus, $normalized['raw_status']);
+                }
+
                 return;
             }
 
@@ -271,6 +306,7 @@ class BiteshipWebhookService
                 'biteship_tracking_id' => $normalized['tracking_id'] ?? $shipment->biteship_tracking_id,
                 'biteship_waybill_id' => $normalized['waybill_id'] ?? $shipment->biteship_waybill_id,
                 'tracking_number' => $normalized['waybill_id'] ?: $shipment->tracking_number,
+                'courier_stage' => $normalized['raw_status'] ?: $shipment->courier_stage,
             ];
 
             if ($newStatus === ShipmentStatus::Shipped->value && empty($shipment->shipped_at)) {
@@ -285,7 +321,7 @@ class BiteshipWebhookService
             $updated = true;
 
             if ($order) {
-                $this->recordTimeline($order, $shipment, $newStatus);
+                $this->recordTimeline($order, $shipment, $newStatus, $normalized['raw_status']);
                 $orderStatus = strtoupper($order->status);
                 if ($newStatus === ShipmentStatus::Returned->value) {
                     $order->payment?->update(['requires_review' => true]);

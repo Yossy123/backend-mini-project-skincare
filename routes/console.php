@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Schedule;
 // Expire unpaid orders past the payment window (aligns with the 24h Midtrans expiry).
 Schedule::command('orders:expire-pending')->hourly();
 
+// Close delivered orders the customer never confirmed.
+Schedule::command('orders:complete-delivered')->dailyAt('02:30')->withoutOverlapping();
+
 // Best-effort telemetry refresh for in-flight shipments (Biteship webhook remains the primary source).
 Schedule::call(fn () => app(ShipmentTrackingSyncService::class)->syncActiveShipments())
     ->everyThirtyMinutes()

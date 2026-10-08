@@ -112,6 +112,8 @@ class MidtransPaymentTest extends TestCase
 
         $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'PAID']);
         $this->assertDatabaseHas('payments', ['order_id' => $order->id, 'status' => 'paid', 'transaction_id' => 'trx-123']);
+        $this->assertSame(1, $user->notifications()->count());
+        $this->assertDatabaseHas('shipment_events', ['order_id' => $order->id, 'status' => 'paid', 'title' => 'Pembayaran diterima']);
     }
 
     public function test_invalid_signature_or_amount_is_rejected(): void

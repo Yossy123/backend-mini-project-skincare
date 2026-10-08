@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderAuditLog;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Services\Orders\ShipmentTimelineService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -215,6 +216,7 @@ class PaymentService
                 $updates['paid_at'] = $payment->paid_at ?? now();
                 if (strtoupper($order->status) === OrderStatus::PendingPayment->value) {
                     $order->update(['status' => OrderStatus::Paid->value]);
+                    app(ShipmentTimelineService::class)->record($order, 'paid', 'Pembayaran diterima', 'Pembayaran pesananmu sudah kami terima. Pesananmu akan segera disiapkan.');
                 } elseif (in_array(strtoupper($order->status), [OrderStatus::Expired->value, OrderStatus::Cancelled->value], true)) {
                     $updates['requires_review'] = true;
                     OrderAuditLog::create([
