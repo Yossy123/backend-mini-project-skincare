@@ -167,6 +167,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
     // Admin Clinical Appointments Management
     Route::prefix('appointments')->group(function () {
         Route::get('/', [AdminAppointmentController::class, 'index']);
+        Route::post('/', [AdminAppointmentController::class, 'store']);
         Route::get('/{id}', [AdminAppointmentController::class, 'show']);
         Route::patch('/{id}/status', [AdminAppointmentController::class, 'updateStatus']);
         Route::patch('/{id}', [AdminAppointmentController::class, 'update']);

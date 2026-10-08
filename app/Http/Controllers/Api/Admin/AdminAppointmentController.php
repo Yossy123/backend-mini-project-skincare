@@ -4,14 +4,32 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AdminAppointmentStoreRequest;
 use App\Models\Appointment;
 use App\Models\Service;
+use App\Services\Booking\BookingService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AdminAppointmentController extends Controller
 {
+    public function __construct(protected BookingService $bookingService) {}
+
+    /**
+     * Create an appointment for a walk-in or phone-booked patient.
+     */
+    public function store(AdminAppointmentStoreRequest $request): JsonResponse
+    {
+        $appointment = $this->bookingService->createBookingForPatient($request->validated(), $request->user());
+
+        return response()->json([
+            'success' => true,
+            'message' => "Reservasi {$appointment->booking_code} berhasil dibuat untuk {$appointment->patient->name}.",
+            'data' => $appointment,
+        ], 201);
+    }
+
     /**
      * List all appointments with filtering & pagination.
      */

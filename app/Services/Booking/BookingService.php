@@ -9,6 +9,7 @@ use App\Models\Patient;
 use App\Models\Service;
 use App\Models\User;
 use Carbon\Carbon;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -132,10 +133,11 @@ class BookingService
      * Create a booking transactionally, locking the doctor row against double-booking.
      *
      * @param  array<string, mixed>  $data  Validated booking payload.
+     * @param  Closure(): Patient|null  $patientResolver  Supplies the patient inside the booking transaction; defaults to the booker's own record.
      *
      * @throws ValidationException
      */
-    public function createBooking(array $data, ?User $user): Appointment
+    public function createBooking(array $data, ?User $user, ?Closure $patientResolver = null): Appointment
     {
         $storedPhoto = null;
         if (! empty($data['photo_url'])) {
@@ -143,7 +145,7 @@ class BookingService
         }
 
         try {
-            return $this->createBookingRecord($data, $user);
+            return $this->createBookingRecord($data, $user, $patientResolver);
         } catch (\Throwable $exception) {
             if ($storedPhoto !== null) {
                 Storage::disk(Appointment::PHOTO_DISK)->delete($storedPhoto);
@@ -158,9 +160,9 @@ class BookingService
      *
      * @throws ValidationException
      */
-    private function createBookingRecord(array $data, ?User $user): Appointment
+    private function createBookingRecord(array $data, ?User $user, ?Closure $patientResolver): Appointment
     {
-        return DB::transaction(function () use ($data, $user) {
+        return DB::transaction(function () use ($data, $user, $patientResolver) {
             $doctor = Doctor::where('id', $data['doctor_id'])
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -218,7 +220,7 @@ class BookingService
                 ]);
             }
 
-            $patient = $this->resolvePatient($data, $user);
+            $patient = $patientResolver ? $patientResolver() : $this->resolvePatient($data, $user);
 
             $appointment = Appointment::create([
                 'booking_code' => $this->generateBookingCode($date),
@@ -240,6 +242,41 @@ class BookingService
 
             return $appointment->load(['patient', 'doctor', 'service']);
         });
+    }
+
+    /**
+     * Book an appointment on behalf of a patient (walk-in or phone booking) made by clinic staff.
+     *
+     * The patient is either an existing record chosen by staff or a brand-new one. A new record is
+     * never silently merged into an existing patient with the same phone number, and it is not linked
+     * to the staff member's account.
+     *
+     * @param  array<string, mixed>  $data  Validated payload, with `patient_id` or `name` and `phone`.
+     *
+     * @throws ValidationException
+     */
+    public function createBookingForPatient(array $data, User $staff): Appointment
+    {
+        $resolvePatient = function () use ($data): Patient {
+            if (! empty($data['patient_id'])) {
+                return Patient::findOrFail($data['patient_id']);
+            }
+
+            $existing = Patient::where('phone', $data['phone'])->first();
+            if ($existing) {
+                throw ValidationException::withMessages([
+                    'phone' => ["Nomor HP ini sudah terdaftar atas nama {$existing->name} (ID {$existing->id}). Pilih pasien tersebut dari daftar pasien."],
+                ]);
+            }
+
+            return Patient::create([
+                'name' => trim($data['name']),
+                'phone' => trim($data['phone']),
+                'email' => ! empty($data['email']) ? $data['email'] : null,
+            ]);
+        };
+
+        return $this->createBooking($data, $staff, $resolvePatient);
     }
 
     /**
