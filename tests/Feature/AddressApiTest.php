@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Address;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class AddressApiTest extends TestCase
@@ -69,6 +70,41 @@ class AddressApiTest extends TestCase
             'postal_code' => '12110',
             'is_default' => true,
         ]);
+    }
+
+    /**
+     * The Biteship single-area lookup answers with an `areas` list; a verified area ID must be kept on the address.
+     */
+    public function test_address_keeps_a_verified_biteship_area_id_and_rejects_a_postal_code_mismatch(): void
+    {
+        Http::fake([
+            'api.biteship.com/v1/maps/areas/*' => Http::response([
+                'success' => true,
+                'areas' => [['id' => 'IDNP9IDNC74IDND6718IDZ16920', 'name' => 'Bojonggede, Bogor', 'postal_code' => 16920]],
+            ], 200),
+        ]);
+        $token = User::factory()->create()->createToken('auth_token')->plainTextToken;
+        $payload = [
+            'label' => 'Home',
+            'recipient_name' => 'Yoshi',
+            'phone' => '081211462862',
+            'province' => 'Jawa Barat',
+            'city' => 'Bogor',
+            'district' => 'Bojonggede',
+            'postal_code' => '16920',
+            'address_line' => 'Perum Taman Bojong Lestari',
+            'biteship_area_id' => 'IDNP9IDNC74IDND6718IDZ16920',
+        ];
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/addresses', $payload)
+            ->assertCreated();
+        $this->assertDatabaseHas('addresses', ['postal_code' => '16920', 'biteship_area_id' => 'IDNP9IDNC74IDND6718IDZ16920']);
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/addresses', [...$payload, 'postal_code' => '12110'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('biteship_area_id');
     }
 
     /**

@@ -126,9 +126,11 @@ class BiteshipRateService
                 ->get($this->client->getBaseUrl().'/v1/maps/areas/'.rawurlencode($areaId));
 
             if ($response->successful()) {
-                $area = $response->json('area') ?? $response->json();
+                // Biteship answers a single-area lookup with a one-item `areas` list.
+                $area = $response->json('areas.0') ?? $response->json('area') ?? $response->json();
 
                 if (is_array($area) && ! empty($area['id'])) {
+                    $area['zip_code'] = (string) ($area['zip_code'] ?? $area['postal_code'] ?? '');
                     Cache::put($cacheKey, $area, 604800);
 
                     return $area;
