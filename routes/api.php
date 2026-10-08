@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Admin\AdminOperationsController;
 use App\Http\Controllers\Api\Admin\AdminOrderController;
 use App\Http\Controllers\Api\Admin\AdminPatientController;
 use App\Http\Controllers\Api\Admin\AdminProductController;
+use App\Http\Controllers\Api\Admin\AdminServiceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\CategoryController;
@@ -176,6 +177,16 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin'])->group(function ()
         Route::get('/', [AdminPatientController::class, 'index']);
         Route::get('/{id}', [AdminPatientController::class, 'show']);
         Route::patch('/{id}', [AdminPatientController::class, 'update']);
+    });
+
+    // Admin Treatments (Clinic Services) Management
+    Route::prefix('services')->group(function () {
+        Route::get('/', [AdminServiceController::class, 'index']);
+        Route::post('/', [AdminServiceController::class, 'store']);
+        Route::get('/{id}', [AdminServiceController::class, 'show']);
+        Route::put('/{id}', [AdminServiceController::class, 'update']);
+        Route::patch('/{id}/toggle', [AdminServiceController::class, 'toggle']);
+        Route::delete('/{id}', [AdminServiceController::class, 'destroy']);
     });
 
     // Admin Doctors Management
