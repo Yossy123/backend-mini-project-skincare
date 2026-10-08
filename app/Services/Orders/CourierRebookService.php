@@ -62,6 +62,8 @@ class CourierRebookService
             });
         });
 
+        app(ShipmentTimelineService::class)->record(Order::findOrFail($orderId), 'processing', 'Mencari kurir baru', 'Kami sudah memesan ulang kurir untuk pesananmu.');
+
         CreateBiteshipShipmentJob::dispatch($orderId)->afterCommit();
 
         return $this->queryService->getOrderDetail($orderId);

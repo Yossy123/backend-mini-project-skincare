@@ -7,6 +7,7 @@ use App\Enums\ShipmentStatus;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
 use App\Models\Shipment;
+use App\Services\Orders\ShipmentTimelineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -63,6 +64,26 @@ class BiteshipWebhookService
                 fn (string $name): bool => ! in_array($name, ['host', 'content-length', 'content-type', 'accept', 'accept-encoding', 'user-agent', 'x-forwarded-for', 'x-forwarded-proto', 'x-real-ip', 'connection'], true)
             )),
         ];
+    }
+
+    /**
+     * Tell the customer, in plain words, which step their parcel just reached.
+     */
+    private function recordTimeline(Order $order, Shipment $shipment, string $status): void
+    {
+        $courier = $shipment->courier ?: 'kurir';
+        $steps = [
+            ShipmentStatus::Processing->value => ['Kurir ditemukan', "Kurir {$courier} sudah dipesan untuk pesananmu dan akan segera menjemput paket."],
+            ShipmentStatus::Shipped->value => ['Pesanan dalam pengiriman', "Paketmu sedang bersama kurir {$courier}.".($shipment->tracking_number ? " Nomor resi: {$shipment->tracking_number}." : '')],
+            ShipmentStatus::Delivered->value => ['Paket telah sampai', 'Paketmu sudah diterima. Terima kasih sudah berbelanja!'],
+            ShipmentStatus::CourierNotFound->value => ['Sedang mencari kurir lain', 'Belum ada driver yang bisa mengambil pesananmu. Kami sedang mencarikan kurir baru.'],
+            ShipmentStatus::Cancelled->value => ['Pengiriman dibatalkan kurir', 'Kurir membatalkan pengiriman. Tim kami sedang memeriksanya dan akan menghubungimu.'],
+            ShipmentStatus::Returned->value => ['Paket dikembalikan', 'Paketmu dikembalikan ke toko. Tim kami akan menghubungimu untuk langkah berikutnya.'],
+        ];
+
+        if (isset($steps[$status])) {
+            app(ShipmentTimelineService::class)->record($order, $status, $steps[$status][0], $steps[$status][1]);
+        }
     }
 
     private function receivedSignature(Request $request, string $signatureKey): string
@@ -208,6 +229,8 @@ class BiteshipWebhookService
                             'note' => 'Biteship tidak menemukan driver untuk pesanan ini. Pesan ulang kurir atau batalkan pesanan.',
                             'metadata' => ['courier' => $shipment->courier, 'biteship_order_id' => $shipment->biteship_order_id],
                         ]);
+
+                        $this->recordTimeline($order, $shipment, ShipmentStatus::CourierNotFound->value);
                     }
                 }
 
@@ -262,6 +285,7 @@ class BiteshipWebhookService
             $updated = true;
 
             if ($order) {
+                $this->recordTimeline($order, $shipment, $newStatus);
                 $orderStatus = strtoupper($order->status);
                 if ($newStatus === ShipmentStatus::Returned->value) {
                     $order->payment?->update(['requires_review' => true]);

@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\Doctor\DoctorDashboardController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\MyAppointmentsController;
+use App\Http\Controllers\Api\MyNotificationController;
 use App\Http\Controllers\Api\MyPatientProfileController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PasswordController;
@@ -52,6 +53,11 @@ Route::patch('/me', [AuthController::class, 'updateMe'])->middleware('auth:sanct
 Route::put('/me/password', [PasswordController::class, 'change'])->middleware(['auth:sanctum', 'throttle:password']);
 Route::get('/my-profile/health', [MyPatientProfileController::class, 'show'])->middleware('auth:sanctum');
 Route::patch('/my-profile/health', [MyPatientProfileController::class, 'update'])->middleware('auth:sanctum');
+Route::prefix('my-notifications')->middleware('auth:sanctum')->group(function () {
+    Route::get('/', [MyNotificationController::class, 'index']);
+    Route::post('/read-all', [MyNotificationController::class, 'markAllAsRead']);
+    Route::post('/{id}/read', [MyNotificationController::class, 'markAsRead']);
+});
 
 // Customer Addresses (CRUD)
 Route::apiResource('addresses', AddressController::class)->middleware('auth:sanctum');

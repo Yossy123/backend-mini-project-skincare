@@ -119,6 +119,16 @@ class Order extends Model
     }
 
     /**
+     * Customer-visible delivery steps, oldest first.
+     *
+     * @return HasMany<ShipmentEvent, $this>
+     */
+    public function shipmentEvents(): HasMany
+    {
+        return $this->hasMany(ShipmentEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /**
      * Get all audit log history for this order.
      *
      * @return HasMany<OrderAuditLog, $this>

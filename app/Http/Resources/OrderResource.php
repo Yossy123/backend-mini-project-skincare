@@ -47,6 +47,13 @@ class OrderResource extends JsonResource
                     'delivered_at' => $this->shipment->delivered_at?->toIso8601String(),
                 ] : null;
             }),
+            'tracking_events' => $this->whenLoaded('shipmentEvents', fn () => $this->shipmentEvents->map(fn ($event): array => [
+                'id' => $event->id,
+                'status' => $event->status,
+                'title' => $event->title,
+                'message' => $event->message,
+                'occurred_at' => $event->occurred_at?->toIso8601String(),
+            ])->values()),
             'payment' => $this->whenLoaded('payment', function () {
                 return $this->payment ? [
                     'id' => $this->payment->id,

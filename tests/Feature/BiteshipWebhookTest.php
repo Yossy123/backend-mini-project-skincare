@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\Shipment;
+use App\Models\ShipmentEvent;
 use App\Models\User;
+use App\Notifications\ShipmentUpdateNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
@@ -144,5 +146,52 @@ class BiteshipWebhookTest extends TestCase
                 && ! str_contains(json_encode($context), 'test-webhook-secret')
                 && ! str_contains(json_encode($context), 'wrong-value-123');
         })->once();
+    }
+
+    public function test_each_delivery_step_notifies_the_customer_once_and_builds_the_tracking_timeline(): void
+    {
+        $customer = User::factory()->create();
+        $order = Order::factory()->create(['user_id' => $customer->id, 'status' => 'PROCESSING', 'shipping_courier' => 'GOJEK', 'shipping_service' => 'INSTANT']);
+        Shipment::create(['order_id' => $order->id, 'courier' => 'GOJEK', 'service' => 'INSTANT', 'status' => 'processing', 'biteship_order_id' => 'bit_notify_1']);
+        $send = fn (string $status) => $this->withHeader('X-Biteship-Signature', 'test-webhook-secret')
+            ->postJson('/api/shipping/webhook/biteship', ['order_id' => 'bit_notify_1', 'status' => $status])->assertOk();
+
+        $send('picking_up');
+        $send('picking_up');
+        $send('delivered');
+
+        $this->assertSame(['shipped', 'delivered'], ShipmentEvent::where('order_id', $order->id)->orderBy('id')->pluck('status')->all());
+        $this->assertSame(2, $customer->notifications()->count());
+
+        $token = $customer->createToken('t')->plainTextToken;
+        $this->withHeader('Authorization', "Bearer {$token}")->getJson("/api/orders/{$order->id}")
+            ->assertOk()
+            ->assertJsonPath('data.tracking_events.0.title', 'Pesanan dalam pengiriman')
+            ->assertJsonPath('data.tracking_events.1.title', 'Paket telah sampai');
+    }
+
+    public function test_customers_read_and_clear_only_their_own_notifications(): void
+    {
+        $customer = User::factory()->create();
+        $other = User::factory()->create();
+        $order = Order::factory()->create(['user_id' => $customer->id, 'status' => 'PROCESSING']);
+        $otherOrder = Order::factory()->create(['user_id' => $other->id, 'status' => 'PROCESSING']);
+        $event = ShipmentEvent::create(['order_id' => $order->id, 'status' => 'shipped', 'title' => 'Dikirim', 'occurred_at' => now()]);
+        $otherEvent = ShipmentEvent::create(['order_id' => $otherOrder->id, 'status' => 'shipped', 'title' => 'Dikirim', 'occurred_at' => now()]);
+        $customer->notify(new ShipmentUpdateNotification($event));
+        $other->notify(new ShipmentUpdateNotification($otherEvent));
+
+        $this->actingAs($customer, 'sanctum')->getJson('/api/my-notifications')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('meta.unread_count', 1)
+            ->assertJsonPath('data.0.order_id', $order->id);
+
+        $foreignId = $other->notifications()->first()->id;
+        $this->actingAs($customer, 'sanctum')->postJson("/api/my-notifications/{$foreignId}/read")->assertNotFound();
+
+        $this->actingAs($customer, 'sanctum')->postJson('/api/my-notifications/read-all')->assertOk();
+        $this->actingAs($customer, 'sanctum')->getJson('/api/my-notifications')->assertJsonPath('meta.unread_count', 0);
+        $this->assertSame(1, $other->unreadNotifications()->count());
     }
 }

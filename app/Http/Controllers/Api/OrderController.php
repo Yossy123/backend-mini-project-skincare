@@ -59,7 +59,7 @@ class OrderController extends Controller
     public function show(Request $request, int $id): JsonResponse|OrderResource
     {
         // Scope by owner so another customer's order is indistinguishable from a missing one.
-        $order = Order::with(['orderItems', 'shipment', 'payment'])
+        $order = Order::with(['orderItems', 'shipment', 'payment', 'shipmentEvents'])
             ->where('user_id', $request->user()->id)
             ->find($id);
 

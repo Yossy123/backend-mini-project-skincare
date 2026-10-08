@@ -56,6 +56,8 @@ class OrderStatusService
 
         // Shipment creation is asynchronous so Biteship downtime never rolls back
         // payment or the order transition.
+        app(ShipmentTimelineService::class)->record($order, 'processing', 'Pesanan sedang disiapkan', 'Pembayaranmu sudah kami terima dan pesananmu sedang disiapkan untuk dikirim.');
+
         CreateBiteshipShipmentJob::dispatch($order->id)->afterCommit();
 
         return $order;
@@ -129,6 +131,8 @@ class OrderStatusService
                 ]
             );
 
+            app(ShipmentTimelineService::class)->record($order, 'shipped', 'Pesanan dalam pengiriman', "Paketmu dikirim lewat {$courier} ({$service}). Nomor resi: {$trackingNumber}.");
+
             return $this->queryService->getOrderDetail($order->id);
         });
     }
@@ -179,6 +183,8 @@ class OrderStatusService
                 newStatus: OrderStatus::Delivered->value,
                 note: 'Package confirmed delivered to customer destination.'
             );
+
+            app(ShipmentTimelineService::class)->record($order, 'delivered', 'Paket telah sampai', 'Paketmu sudah diterima. Terima kasih sudah berbelanja!');
 
             return $this->queryService->getOrderDetail($order->id);
         });
