@@ -6,7 +6,6 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\OrderAuditLog;
-use App\Models\Payment;
 use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -40,7 +39,7 @@ class OrderExpirationService
                         continue;
                     }
 
-                    if (! $this->releaseGatewaySession($payment, $gatewayTransaction !== null)) {
+                    if (! app(PaymentService::class)->releaseGatewaySession($payment, $gatewayTransaction !== null)) {
                         $payment->update(['requires_review' => true]);
 
                         continue;
@@ -117,25 +116,5 @@ class OrderExpirationService
         }
 
         return true;
-    }
-
-    /**
-     * Make sure the customer can no longer pay through the gateway before stock is released.
-     *
-     * - A live pending transaction (e.g. an issued virtual account) is expired at the gateway.
-     * - With no transaction yet, the Snap page cannot start one once its own expiry has passed,
-     *   so only an early (admin-triggered) expiry still needs the Snap session cancelled.
-     */
-    protected function releaseGatewaySession(Payment $payment, bool $hasGatewayTransaction): bool
-    {
-        if ($hasGatewayTransaction) {
-            return app(PaymentService::class)->expireGatewayTransaction($payment);
-        }
-
-        if ($payment->merchant_order_id && $payment->expires_at?->isPast()) {
-            return true;
-        }
-
-        return app(MidtransService::class)->cancelSnapSession($payment->snap_token);
     }
 }

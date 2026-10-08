@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\OrderStoreRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
+use App\Services\Orders\CustomerOrderCancellationService;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,7 +15,8 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 class OrderController extends Controller
 {
     public function __construct(
-        protected OrderService $orderService
+        protected OrderService $orderService,
+        protected CustomerOrderCancellationService $cancellationService
     ) {}
 
     /**
@@ -31,6 +33,14 @@ class OrderController extends Controller
         return (new OrderResource($order))
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * Cancel one of the authenticated user's own unpaid orders.
+     */
+    public function cancel(Request $request, int $id): OrderResource
+    {
+        return new OrderResource($this->cancellationService->cancelUnpaidOrder($id, $request->user()));
     }
 
     /**

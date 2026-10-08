@@ -153,6 +153,28 @@ class PaymentService
         return true;
     }
 
+    /**
+     * Make sure the customer can no longer pay through the gateway before the order's stock is released.
+     *
+     * - A live pending transaction (e.g. an issued virtual account) is expired at the gateway.
+     * - With no transaction yet, the Snap page cannot start one once its own expiry has passed,
+     *   so only an early closure (admin expiry, customer cancellation) still needs the Snap session cancelled.
+     *
+     * Returns false when the gateway did not confirm, so the caller must keep the stock reserved.
+     */
+    public function releaseGatewaySession(Payment $payment, bool $hasGatewayTransaction): bool
+    {
+        if ($hasGatewayTransaction) {
+            return $this->expireGatewayTransaction($payment);
+        }
+
+        if ($payment->merchant_order_id && $payment->expires_at?->isPast()) {
+            return true;
+        }
+
+        return $this->midtrans->cancelSnapSession((string) $payment->snap_token);
+    }
+
     protected function applyVerifiedNotification(array $notification): Payment
     {
         $identity = (string) ($notification['order_id'] ?? '');
