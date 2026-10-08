@@ -475,4 +475,42 @@ class InstantCourierReadinessTest extends TestCase
         $this->assertDatabaseHas('products', ['id' => $order->orderItems[0]->product_id, 'stock' => 10]);
         Http::assertNothingSent();
     }
+
+    public function test_staff_cannot_ship_or_deliver_a_gojek_order_by_hand_and_the_buttons_are_hidden(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $stuck = $this->processingOrderWithBooking('courier_not_found');
+        $booked = $this->processingOrderWithBooking('processing', 'bit_instant_2');
+        $onTheWay = $this->processingOrderWithBooking('shipped', 'bit_instant_3');
+        $onTheWay->update(['status' => 'SHIPPED']);
+
+        $this->assertNotContains('ship', $stuck->fresh('shipment')->allowed_actions);
+        $this->assertContains('rebook_courier', $stuck->fresh('shipment')->allowed_actions);
+        $this->assertNotContains('ship', $booked->fresh('shipment')->allowed_actions);
+        $this->assertNotContains('deliver', $onTheWay->fresh('shipment')->allowed_actions);
+
+        foreach ([$stuck, $booked] as $order) {
+            $this->actingAs($admin, 'sanctum')
+                ->postJson("/api/admin/orders/{$order->id}/ship", ['tracking_number' => 'FAKE-123'])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('status');
+            $this->assertSame('PROCESSING', $order->fresh()->status);
+        }
+
+        $this->actingAs($admin, 'sanctum')->postJson("/api/admin/orders/{$onTheWay->id}/deliver")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status');
+        $this->assertSame('SHIPPED', $onTheWay->fresh()->status);
+    }
+
+    public function test_regular_couriers_can_still_be_shipped_and_delivered_by_hand(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $order = Order::factory()->create(['user_id' => $this->customer->id, 'status' => 'PROCESSING', 'shipping_courier' => 'JNE', 'shipping_service' => 'REG']);
+
+        $this->assertContains('ship', $order->fresh('shipment')->allowed_actions);
+        $this->actingAs($admin, 'sanctum')->postJson("/api/admin/orders/{$order->id}/ship", ['tracking_number' => 'JNE-1'])->assertOk();
+        $this->actingAs($admin, 'sanctum')->postJson("/api/admin/orders/{$order->id}/deliver")->assertOk();
+        $this->assertSame('DELIVERED', $order->fresh()->status);
+    }
 }

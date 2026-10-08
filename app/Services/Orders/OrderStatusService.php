@@ -89,6 +89,10 @@ class OrderStatusService
                 ]);
             }
 
+            if ($blockReason = $order->manualShipmentBlockReason()) {
+                throw ValidationException::withMessages(['status' => [$blockReason]]);
+            }
+
             $courier = strtoupper(trim((string) ($payload['courier'] ?? $order->shipping_courier)));
             $service = strtoupper(trim((string) ($payload['service'] ?? $order->shipping_service)));
 
@@ -145,6 +149,12 @@ class OrderStatusService
             if (! $order->canBeDelivered()) {
                 throw ValidationException::withMessages([
                     'status' => ["Cannot mark order #{$order->id} as delivered. Order must be in 'SHIPPED' status (Current: '{$order->status}')."],
+                ]);
+            }
+
+            if ($order->usesInstantCourier()) {
+                throw ValidationException::withMessages([
+                    'status' => ['Pengiriman Gojek/Grab ditandai terkirim otomatis oleh Biteship, bukan manual.'],
                 ]);
             }
 

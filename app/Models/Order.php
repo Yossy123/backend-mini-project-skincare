@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\OrderStatus;
 use App\Enums\ShipmentStatus;
+use App\Services\Shipping\InstantCourierPolicy;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -144,6 +145,34 @@ class Order extends Model
     }
 
     /**
+     * Whether the parcel travels with Gojek or Grab, whose progress comes only from Biteship.
+     */
+    public function usesInstantCourier(): bool
+    {
+        return InstantCourierPolicy::isInstant($this->shipment?->courier)
+            || InstantCourierPolicy::isInstant($this->shipping_courier);
+    }
+
+    /**
+     * Why staff may not mark this order shipped by hand, or null when they may.
+     *
+     * A driver booking is tracked by Biteship, so hand-entering a tracking number would show the
+     * customer a parcel that no driver has picked up.
+     */
+    public function manualShipmentBlockReason(): ?string
+    {
+        if ($this->shipment?->status === ShipmentStatus::CourierNotFound->value) {
+            return 'Biteship belum menemukan driver untuk pesanan ini. Pesan ulang kurir atau batalkan pesanan.';
+        }
+
+        if ($this->usesInstantCourier()) {
+            return 'Pengiriman Gojek/Grab berjalan otomatis lewat Biteship dan tidak bisa ditandai terkirim manual. Tunggu kurir dijemput atau sinkronkan status pengiriman.';
+        }
+
+        return null;
+    }
+
+    /**
      * Determine if order can transition to DELIVERED.
      */
     public function canBeDelivered(): bool
@@ -180,11 +209,11 @@ class Order extends Model
             $actions[] = 'process';
         }
 
-        if ($this->canBeShipped()) {
+        if ($this->canBeShipped() && $this->manualShipmentBlockReason() === null) {
             $actions[] = 'ship';
         }
 
-        if ($this->canBeDelivered()) {
+        if ($this->canBeDelivered() && ! $this->usesInstantCourier()) {
             $actions[] = 'deliver';
         }
 
