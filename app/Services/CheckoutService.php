@@ -131,7 +131,6 @@ class CheckoutService
                 'total_weight' => $totalWeight,
                 'formatted_total_weight' => $formattedWeight,
                 'total_items' => $totalItemsCount,
-                'free_shipping_min_spend' => (float) config('services.biteship.free_shipping_min_spend', 0),
             ],
             'shipping_address' => $selectedAddress,
             'is_valid' => true,

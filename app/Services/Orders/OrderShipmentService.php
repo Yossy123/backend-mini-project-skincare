@@ -77,20 +77,10 @@ class OrderShipmentService
             ]);
         }
 
-        // Free-shipping promotion advertised in the storefront: the store absorbs the
-        // courier cost when the item subtotal reaches the configured threshold.
-        $subtotal = 0.0;
-        foreach ($orderItemsData as $item) {
-            $subtotal += (float) $item['unit_price'] * max(1, (int) $item['quantity']);
-        }
-
-        $freeShippingMinSpend = (float) config('services.biteship.free_shipping_min_spend', 0);
-        $isFreeShipping = $freeShippingMinSpend > 0 && $subtotal >= $freeShippingMinSpend;
-
         return [
             'courier' => strtoupper($courier),
             'service' => (string) ($matchedRate['service'] ?? $requestedService),
-            'cost' => $isFreeShipping ? 0.0 : (float) $matchedRate['price'],
+            'cost' => (float) $matchedRate['price'],
             'etd' => (string) ($matchedRate['formatted_etd'] ?? $matchedRate['etd'] ?? '2-3 Hari'),
         ];
     }

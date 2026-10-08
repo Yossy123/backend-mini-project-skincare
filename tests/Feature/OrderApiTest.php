@@ -144,9 +144,9 @@ class OrderApiTest extends TestCase
     }
 
     /**
-     * Test free-shipping promotion zeroes the shipping cost when subtotal reaches the threshold.
+     * Test shipping is always charged, even for large orders (there is no free-shipping promotion).
      */
-    public function test_order_creation_applies_free_shipping_at_threshold(): void
+    public function test_order_creation_always_charges_shipping(): void
     {
         $user = User::factory()->create();
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -173,8 +173,8 @@ class OrderApiTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('data.subtotal', 500000)
-            ->assertJsonPath('data.shipping_cost', fn ($v) => (float) $v === 0.0)
-            ->assertJsonPath('data.total', 500000)
+            ->assertJsonPath('data.shipping_cost', 24000)
+            ->assertJsonPath('data.total', 524000)
             ->assertJsonPath('data.shipping_courier', 'JNE')
             ->assertJsonPath('data.shipping_service', 'REG')
             ->assertJsonPath('data.shipping_etd', '2-3 Hari');

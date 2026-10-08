@@ -48,7 +48,6 @@ return [
         'origin_longitude' => is_numeric(env('BITESHIP_ORIGIN_LONGITUDE')) ? (float) env('BITESHIP_ORIGIN_LONGITUDE') : null,
         'instant_enabled' => (bool) env('BITESHIP_INSTANT_ENABLED', false),
         'timeout' => (int) env('BITESHIP_TIMEOUT', 10),
-        'free_shipping_min_spend' => (float) env('SHIPPING_FREE_MIN_SPEND', 500000),
         'webhook_signature_key' => env('BITESHIP_WEBHOOK_SIGNATURE_KEY', 'X-Biteship-Signature'),
         'webhook_secret' => env('BITESHIP_WEBHOOK_SECRET', ''),
     ],
