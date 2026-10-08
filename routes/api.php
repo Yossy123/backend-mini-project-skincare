@@ -51,6 +51,7 @@ Route::get('/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
 Route::patch('/me', [AuthController::class, 'updateMe'])->middleware('auth:sanctum');
 Route::put('/me/password', [PasswordController::class, 'change'])->middleware(['auth:sanctum', 'throttle:password']);
 Route::get('/my-profile/health', [MyPatientProfileController::class, 'show'])->middleware('auth:sanctum');
+Route::patch('/my-profile/health', [MyPatientProfileController::class, 'update'])->middleware('auth:sanctum');
 
 // Customer Addresses (CRUD)
 Route::apiResource('addresses', AddressController::class)->middleware('auth:sanctum');
