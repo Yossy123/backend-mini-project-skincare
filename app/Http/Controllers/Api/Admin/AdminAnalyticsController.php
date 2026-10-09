@@ -9,11 +9,12 @@ use App\Services\Analytics\PaymentAnalyticsService;
 use App\Services\Analytics\ProductAnalyticsService;
 use App\Services\Analytics\SalesAnalyticsService;
 use App\Services\Analytics\ShippingAnalyticsService;
+use App\Services\Reports\SalesReportBuilder;
+use App\Services\Reports\SalesReportWorkbook;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-
-use App\Models\Order;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+
 class AdminAnalyticsController extends Controller
 {
     public function __construct(
@@ -42,61 +43,32 @@ class AdminAnalyticsController extends Controller
     }
 
     /**
-     * Download order-level paid sales for the requested calendar period as CSV.
+     * Download the paid sales of a calendar period as an Excel workbook (default) or a CSV file.
      */
-    public function exportSales(Request $request): StreamedResponse
+    public function exportSales(Request $request, SalesReportBuilder $builder): StreamedResponse
     {
         $validated = $request->validate([
             'period' => ['required', 'in:week,month,year'],
+            'format' => ['nullable', 'in:xlsx,csv'],
         ]);
         [$start, $end] = $this->salesAnalyticsService->resolveDateRange($validated['period']);
-        $period = $validated['period'];
-        $filename = sprintf('laporan-penjualan-%s-%s.csv', $period, $start->toDateString());
+        $format = $validated['format'] ?? 'csv';
+        $filename = sprintf('laporan-penjualan-%s-%s.%s', $validated['period'], $start->toDateString(), $format);
+        $report = $builder->build($start, $end);
+        $workbook = new SalesReportWorkbook(SalesReportBuilder::periodLabel($validated['period']), $start, $end);
 
-        return response()->streamDownload(function () use ($start, $end) {
-            $output = fopen('php://output', 'w');
-            fwrite($output, chr(0xEF).chr(0xBB).chr(0xBF));
-            fputcsv($output, [
-                'ID Pesanan', 'Tanggal', 'Nama Customer', 'Email Customer', 'Produk',
-                'Jumlah Item', 'Subtotal (IDR)', 'Ongkir (IDR)', 'Total (IDR)', 'Status',
+        if ($format === 'xlsx') {
+            return response()->streamDownload(function () use ($workbook, $report): void {
+                echo $workbook->toXlsx($report);
+            }, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Cache-Control' => 'no-store, private',
             ]);
+        }
 
-            $safeText = static function (?string $value): string {
-                $value = $value ?? '';
-                if (preg_match('/^[=+\-@\t\r]/', $value)) {
-                    return "'".$value;
-                }
-                return $value;
-            };
-
-            Order::with([
-                'user:id,name,email',
-                'orderItems:id,order_id,product_name,quantity',
-            ])
-                ->whereIn('status', SalesAnalyticsService::VALID_PAID_STATUSES)
-                ->whereBetween('created_at', [$start, $end])
-                ->orderBy('id')
-                ->chunkById(500, function ($orders) use ($output, $safeText) {
-                    foreach ($orders as $order) {
-                        $products = $order->orderItems
-                            ->map(fn ($item) => $safeText($item->product_name).' x '.$item->quantity)
-                            ->implode(' | ');
-
-                        fputcsv($output, [
-                            $order->id,
-                            $order->created_at?->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
-                            $safeText($order->user?->name),
-                            $safeText($order->user?->email),
-                            $products,
-                            $order->orderItems->sum('quantity'),
-                            number_format((float) $order->subtotal, 2, '.', ''),
-                            number_format((float) $order->shipping_cost, 2, '.', ''),
-                            number_format((float) $order->total, 2, '.', ''),
-                            $order->status,
-                        ]);
-                    }
-                });
-
+        return response()->streamDownload(function () use ($workbook, $report): void {
+            $output = fopen('php://output', 'w');
+            $workbook->writeCsv($output, $report);
             fclose($output);
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',

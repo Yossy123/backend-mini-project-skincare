@@ -349,4 +349,96 @@ class AdminAnalyticsTest extends TestCase
         $orderIds = array_map(fn ($row) => (int) $row[0], array_slice($rows, 1));
         $this->assertSame([$paidOrder->id], $orderIds);
     }
+
+    /**
+     * Read the files of an uncompressed ZIP (what the Excel export produces).
+     *
+     * @return array<string, string>
+     */
+    private function unzipStored(string $binary): array
+    {
+        $files = [];
+        $offset = 0;
+        while (substr($binary, $offset, 4) === "PK\x03\x04") {
+            $header = unpack('vversion/vflags/vmethod/vtime/vdate/Vcrc/Vcsize/Vusize/vnameLength/vextraLength', substr($binary, $offset + 4, 26));
+            $this->assertSame(0, $header['method'], 'The workbook parts are stored without compression.');
+            $name = substr($binary, $offset + 30, $header['nameLength']);
+            $data = substr($binary, $offset + 30 + $header['nameLength'] + $header['extraLength'], $header['csize']);
+            $this->assertSame($header['crc'], crc32($data), "CRC of {$name} must match its content.");
+            $files[$name] = $data;
+            $offset += 30 + $header['nameLength'] + $header['extraLength'] + $header['csize'];
+        }
+
+        return $files;
+    }
+
+    private function exportableSales(): Order
+    {
+        $customer = User::factory()->create(['role' => 'customer', 'name' => 'Sari Dewi', 'email' => 'sari@example.com']);
+        $paid = $this->createTestOrder(['user_id' => $customer->id, 'status' => 'DELIVERED', 'subtotal' => 200000, 'shipping_cost' => 12500, 'total' => 212500]);
+        OrderItem::create(['order_id' => $paid->id, 'product_name' => 'Glow Serum', 'unit_price' => 100000, 'quantity' => 2, 'subtotal' => 200000]);
+        Payment::factory()->create(['order_id' => $paid->id, 'status' => 'paid', 'payment_type' => 'bank_transfer', 'paid_at' => now()]);
+        $this->createTestOrder(['user_id' => $customer->id, 'status' => 'CANCELLED']);
+
+        return $paid;
+    }
+
+    public function test_admin_can_export_monthly_sales_as_a_formatted_excel_workbook(): void
+    {
+        $paid = $this->exportableSales();
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->get('/api/admin/analytics/sales/export?period=month&format=xlsx');
+
+        $response->assertOk();
+        $this->assertStringContainsString('spreadsheetml.sheet', $response->headers->get('content-type'));
+        $this->assertStringEndsWith('.xlsx', $response->headers->get('content-disposition'));
+        $files = $this->unzipStored($response->streamedContent());
+
+        foreach (['[Content_Types].xml', 'xl/workbook.xml', 'xl/styles.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/worksheets/sheet3.xml'] as $part) {
+            $this->assertArrayHasKey($part, $files);
+            $this->assertNotFalse(simplexml_load_string($files[$part]), "{$part} must be well-formed XML.");
+        }
+        $this->assertStringContainsString('Ringkasan', $files['xl/workbook.xml']);
+        $this->assertStringContainsString('Pesanan', $files['xl/workbook.xml']);
+        $this->assertStringContainsString('Produk Terjual', $files['xl/workbook.xml']);
+
+        $orders = $files['xl/worksheets/sheet2.xml'];
+        $this->assertStringContainsString('sari@example.com', $orders);
+        $this->assertStringContainsString('Glow Serum x 2', $orders);
+        $this->assertStringContainsString('Terkirim', $orders);
+        $this->assertStringContainsString('Transfer Bank', $orders);
+        $this->assertStringContainsString('<v>212500</v>', $orders, 'Amounts are real numbers without decimals.');
+        $this->assertStringContainsString('<pane ySplit="1"', $orders, 'The header row stays visible while scrolling.');
+        $this->assertStringContainsString('<autoFilter', $orders);
+        $this->assertStringContainsString('SUBTOTAL(109,J2:J2)', $orders);
+        $this->assertStringNotContainsString('CANCELLED', $orders);
+        $this->assertStringContainsString('<v>'.$paid->id.'</v>', $orders);
+
+        $summary = $files['xl/worksheets/sheet1.xml'];
+        $this->assertStringContainsString('Laporan Penjualan NOBYDERM', $summary);
+        $this->assertStringContainsString('<v>212500</v>', $summary);
+        $this->assertStringContainsString('Glow Serum', $files['xl/worksheets/sheet3.xml']);
+    }
+
+    public function test_the_csv_export_writes_whole_rupiah_and_readable_labels(): void
+    {
+        $this->exportableSales();
+
+        $csv = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->get('/api/admin/analytics/sales/export?period=month')
+            ->streamedContent();
+
+        $rows = array_map('str_getcsv', array_values(array_filter(preg_split('/\r?\n/', ltrim($csv, "\xEF\xBB\xBF")))));
+        $this->assertSame('Metode Pembayaran', $rows[0][11]);
+        $this->assertSame(['212500', 'Terkirim', 'Transfer Bank'], [$rows[1][9], $rows[1][10], $rows[1][11]]);
+        $this->assertStringNotContainsString('212500.00', $csv);
+    }
+
+    public function test_sales_export_rejects_an_unknown_format(): void
+    {
+        $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->getJson('/api/admin/analytics/sales/export?period=month&format=pdf')
+            ->assertUnprocessable();
+    }
 }
