@@ -93,7 +93,7 @@ class ShippingService
         ];
         $cacheKey = 'shipping_rates_biteship_'.hash('sha256', json_encode($cacheInputs, JSON_THROW_ON_ERROR));
 
-        return Cache::remember($cacheKey, 600, function () use ($destParams, $weightInGrams, $couriers, $items) {
+        $rates = Cache::remember($cacheKey, 600, function () use ($destParams, $weightInGrams, $couriers, $items) {
             $rates = $this->shippingProvider->getRates(array_merge($destParams, [
                 'weight_in_grams' => $weightInGrams,
                 'couriers' => $couriers,
@@ -102,6 +102,16 @@ class ShippingService
 
             return $rates;
         });
+
+        // Applied after the cache, so a quote saved before the window closed is not offered after it.
+        if ($this->instantPolicy->sameDayWindowIsOpen()) {
+            return $rates;
+        }
+
+        return array_values(array_filter(
+            $rates,
+            fn (array $rate): bool => ! InstantCourierPolicy::usesSameDayWindow($rate['courier'] ?? null, $rate['service'] ?? null)
+        ));
     }
 
     /**

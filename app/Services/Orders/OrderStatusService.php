@@ -8,6 +8,7 @@ use App\Jobs\CreateBiteshipShipmentJob;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\User;
+use App\Services\Shipping\InstantCourierPolicy;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -34,6 +35,13 @@ class OrderStatusService
             if (! $order->canBeProcessed()) {
                 throw ValidationException::withMessages([
                     'status' => ["Cannot process order #{$order->id}. Order must be in 'PAID' status (Current: '{$order->status}')."],
+                ]);
+            }
+
+            $policy = app(InstantCourierPolicy::class);
+            if (InstantCourierPolicy::usesSameDayWindow($order->shipping_courier, $order->shipping_service) && ! $policy->sameDayWindowIsOpen()) {
+                throw ValidationException::withMessages([
+                    'shipment' => ["Layanan {$order->shipping_courier} Same Day hanya bisa dipesan pukul ".$policy->sameDayWindowLabel().'. Proses pesanan dalam jam itu, atau minta pelanggan mengganti layanan.'],
                 ]);
             }
 

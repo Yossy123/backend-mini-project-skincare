@@ -16,4 +16,7 @@ enum ShipmentStatus: string
 
     /** An instant courier (Gojek/Grab) booking that found no driver; the order needs a new booking. */
     case CourierNotFound = 'courier_not_found';
+
+    /** Biteship refused to create the booking (for example outside a service's hours); an admin must fix the cause and book again. */
+    case BookingFailed = 'booking_failed';
 }

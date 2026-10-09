@@ -7,6 +7,7 @@ use App\Enums\ShipmentStatus;
 use App\Jobs\CreateBiteshipShipmentJob;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Shipping\InstantCourierPolicy;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -34,9 +35,16 @@ class CourierRebookService
                 $shipment = $order->shipment;
 
                 if (strtoupper($order->status) !== OrderStatus::Processing->value
-                    || $shipment?->status !== ShipmentStatus::CourierNotFound->value) {
+                    || ! in_array($shipment?->status, [ShipmentStatus::CourierNotFound->value, ShipmentStatus::BookingFailed->value], true)) {
                     throw ValidationException::withMessages([
                         'shipment' => ["Order #{$order->id} tidak sedang menunggu kurir baru, jadi kurir tidak bisa dipesan ulang."],
+                    ]);
+                }
+
+                $policy = app(InstantCourierPolicy::class);
+                if (InstantCourierPolicy::usesSameDayWindow($shipment->courier, $shipment->service) && ! $policy->sameDayWindowIsOpen()) {
+                    throw ValidationException::withMessages([
+                        'shipment' => ['Layanan Same Day hanya bisa dipesan pukul '.$policy->sameDayWindowLabel().'. Coba lagi dalam jam itu, atau minta pelanggan mengganti layanan.'],
                     ]);
                 }
 
@@ -48,6 +56,7 @@ class CourierRebookService
                     'biteship_tracking_id' => null,
                     'biteship_waybill_id' => null,
                     'tracking_number' => null,
+                    'booking_error' => null,
                 ]);
 
                 $this->auditService->log(

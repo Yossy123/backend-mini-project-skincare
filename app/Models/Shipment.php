@@ -27,6 +27,7 @@ class Shipment extends Model
         'tracking_number',
         'status',
         'courier_stage',
+        'booking_error',
         'shipped_at',
         'delivered_at',
     ];

@@ -7,6 +7,7 @@ use App\Models\Address;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\User;
+use App\Services\Shipping\InstantCourierPolicy;
 use App\Services\ShippingService;
 use Illuminate\Validation\ValidationException;
 
@@ -43,6 +44,13 @@ class OrderShipmentService
         if (empty($courier) || empty($requestedService)) {
             throw ValidationException::withMessages([
                 'shipping' => ['Courier and shipping service must be selected.'],
+            ]);
+        }
+
+        $policy = app(InstantCourierPolicy::class);
+        if (InstantCourierPolicy::usesSameDayWindow($courier, $requestedService) && ! $policy->sameDayWindowIsOpen()) {
+            throw ValidationException::withMessages([
+                'shipping' => ['Layanan Same Day hanya tersedia pukul '.$policy->sameDayWindowLabel().'. Pilih layanan lain atau coba lagi dalam jam itu.'],
             ]);
         }
 

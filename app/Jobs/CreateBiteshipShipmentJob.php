@@ -6,6 +6,7 @@ use App\Contracts\ShippingProviderInterface;
 use App\Enums\OrderStatus;
 use App\Enums\ShipmentStatus;
 use App\Models\Order;
+use App\Models\OrderAuditLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,10 +16,14 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class CreateBiteshipShipmentJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /** Start of the exception message when Biteship refuses the booking; the provider's reason follows it. */
+    public const FAILURE_PREFIX = 'Biteship shipment creation failed.';
 
     public int $tries = 3;
 
@@ -86,7 +91,7 @@ class CreateBiteshipShipmentJob implements ShouldQueue
                     'order_id' => $order->id,
                     'response' => $result,
                 ]);
-                throw new \RuntimeException('Biteship shipment creation failed.');
+                throw new \RuntimeException(trim(self::FAILURE_PREFIX.' '.($result['message'] ?? '')));
             }
 
             // Short transaction: re-verify the claim so a shipment booked by
@@ -136,5 +141,38 @@ class CreateBiteshipShipmentJob implements ShouldQueue
             'order_id' => $this->orderId,
             'exception' => $exception->getMessage(),
         ]);
+
+        // Make the failure visible to staff instead of leaving the order silently in PROCESSING.
+        try {
+            $order = Order::with('shipment')->find($this->orderId);
+            $shipment = $order?->shipment;
+
+            if (! $shipment || $shipment->biteship_order_id
+                || ! in_array(strtoupper($order->status), [OrderStatus::Processing->value, OrderStatus::Paid->value], true)) {
+                return;
+            }
+
+            $reason = str_starts_with($exception->getMessage(), self::FAILURE_PREFIX)
+                ? trim(Str::after($exception->getMessage(), self::FAILURE_PREFIX))
+                : '';
+            $reason = $reason !== '' ? $reason : 'Biteship menolak pemesanan kurir, atau terjadi gangguan saat memesan.';
+
+            $shipment->update([
+                'status' => ShipmentStatus::BookingFailed->value,
+                'booking_error' => Str::limit($reason, 500),
+            ]);
+
+            OrderAuditLog::create([
+                'order_id' => $order->id,
+                'admin_id' => null,
+                'action' => 'COURIER_BOOKING_FAILED',
+                'previous_status' => strtoupper($order->status),
+                'new_status' => strtoupper($order->status),
+                'note' => 'Pemesanan kurir ke Biteship gagal: '.$reason,
+                'metadata' => ['courier' => $shipment->courier, 'service' => $shipment->service],
+            ]);
+        } catch (\Throwable $loggingError) {
+            Log::error('Could not record the failed courier booking for order #'.$this->orderId, ['message' => $loggingError->getMessage()]);
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Shipping;
 
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -23,6 +24,30 @@ class InstantCourierPolicy
     public static function isInstant(?string $courier): bool
     {
         return in_array(strtolower(trim((string) $courier)), self::COURIERS, true);
+    }
+
+    /** Gojek and Grab Same Day can only be booked during a daily window. */
+    public static function usesSameDayWindow(?string $courier, ?string $service): bool
+    {
+        return self::isInstant($courier) && strtoupper(trim((string) $service)) === 'SAME_DAY';
+    }
+
+    /** Whether Biteship accepts a Same Day booking at this moment (default: now). */
+    public function sameDayWindowIsOpen(?CarbonInterface $at = null): bool
+    {
+        $moment = ($at ?? now())->copy()->setTimezone('Asia/Jakarta');
+        $start = $moment->copy()->setTimeFromTimeString((string) config('services.biteship.same_day_start', '09:00'));
+        $end = $moment->copy()->setTimeFromTimeString((string) config('services.biteship.same_day_end', '14:00'));
+
+        return $moment->greaterThanOrEqualTo($start) && $moment->lessThan($end);
+    }
+
+    /** The window as customers and staff read it, e.g. "09.00 sampai 14.00 WIB". */
+    public function sameDayWindowLabel(): string
+    {
+        $format = fn (string $time): string => str_replace(':', '.', substr($time, 0, 5));
+
+        return $format((string) config('services.biteship.same_day_start', '09:00')).' sampai '.$format((string) config('services.biteship.same_day_end', '14:00')).' WIB';
     }
 
     public static function isWithinIndonesia(float $latitude, float $longitude): bool

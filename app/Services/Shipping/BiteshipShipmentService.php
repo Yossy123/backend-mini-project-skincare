@@ -128,6 +128,8 @@ class BiteshipShipmentService
             ];
         }
 
+        $providerMessage = '';
+
         try {
             $response = $this->client->httpClient()
                 ->withHeaders(['Content-Type' => 'application/json'])
@@ -153,6 +155,7 @@ class BiteshipShipmentService
                 'status' => $response->status(),
                 'response' => $response->json() ?? $response->body(),
             ]);
+            $providerMessage = trim((string) ($response->json('error') ?? $response->json('message') ?? ''));
         } catch (Exception $e) {
             Log::error('Biteship createShipment exception: '.$e->getMessage());
         }
@@ -167,6 +170,7 @@ class BiteshipShipmentService
             'service' => strtoupper($service),
             'price' => 0.0,
             'raw' => [],
+            'message' => $providerMessage,
         ];
     }
 

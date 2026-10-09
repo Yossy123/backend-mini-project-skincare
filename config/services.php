@@ -47,6 +47,9 @@ return [
         'origin_latitude' => is_numeric(env('BITESHIP_ORIGIN_LATITUDE')) ? (float) env('BITESHIP_ORIGIN_LATITUDE') : null,
         'origin_longitude' => is_numeric(env('BITESHIP_ORIGIN_LONGITUDE')) ? (float) env('BITESHIP_ORIGIN_LONGITUDE') : null,
         'instant_enabled' => (bool) env('BITESHIP_INSTANT_ENABLED', false),
+        // Hours (Asia/Jakarta) in which Biteship accepts Same Day bookings from Gojek and Grab.
+        'same_day_start' => env('BITESHIP_SAME_DAY_START', '09:00'),
+        'same_day_end' => env('BITESHIP_SAME_DAY_END', '14:00'),
         'timeout' => (int) env('BITESHIP_TIMEOUT', 10),
         'webhook_signature_key' => env('BITESHIP_WEBHOOK_SIGNATURE_KEY', 'X-Biteship-Signature'),
         'webhook_secret' => env('BITESHIP_WEBHOOK_SECRET', ''),

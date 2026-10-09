@@ -232,7 +232,7 @@ class Order extends Model
         }
 
         if (strtoupper($this->status) === self::STATUS_PROCESSING
-            && $this->shipment?->status === ShipmentStatus::CourierNotFound->value) {
+            && in_array($this->shipment?->status, [ShipmentStatus::CourierNotFound->value, ShipmentStatus::BookingFailed->value], true)) {
             $actions[] = 'rebook_courier';
         }
 

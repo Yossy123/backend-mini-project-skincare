@@ -114,7 +114,7 @@ class AdminOperationsController extends Controller
                 'out_of_stock_products' => $outOfStock,
                 'recent_refunds_count' => $recentRefunds,
                 'payments_requiring_review' => Payment::where('requires_review', true)->count(),
-                'shipments_without_courier' => Shipment::where('status', ShipmentStatus::CourierNotFound->value)->count(),
+                'shipments_without_courier' => Shipment::whereIn('status', [ShipmentStatus::CourierNotFound->value, ShipmentStatus::BookingFailed->value])->count(),
             ],
         ], 200);
     }
