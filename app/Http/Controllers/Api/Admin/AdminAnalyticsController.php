@@ -43,35 +43,22 @@ class AdminAnalyticsController extends Controller
     }
 
     /**
-     * Download the paid sales of a calendar period as an Excel workbook (default) or a CSV file.
+     * Download the paid sales of a calendar period as a formatted Excel workbook.
      */
     public function exportSales(Request $request, SalesReportBuilder $builder): StreamedResponse
     {
         $validated = $request->validate([
             'period' => ['required', 'in:week,month,year'],
-            'format' => ['nullable', 'in:xlsx,csv'],
         ]);
         [$start, $end] = $this->salesAnalyticsService->resolveDateRange($validated['period']);
-        $format = $validated['format'] ?? 'csv';
-        $filename = sprintf('laporan-penjualan-%s-%s.%s', $validated['period'], $start->toDateString(), $format);
-        $report = $builder->build($start, $end);
+        $filename = sprintf('laporan-penjualan-%s-%s.xlsx', $validated['period'], $start->toDateString());
         $workbook = new SalesReportWorkbook(SalesReportBuilder::periodLabel($validated['period']), $start, $end);
-
-        if ($format === 'xlsx') {
-            return response()->streamDownload(function () use ($workbook, $report): void {
-                echo $workbook->toXlsx($report);
-            }, $filename, [
-                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'Cache-Control' => 'no-store, private',
-            ]);
-        }
+        $report = $builder->build($start, $end);
 
         return response()->streamDownload(function () use ($workbook, $report): void {
-            $output = fopen('php://output', 'w');
-            $workbook->writeCsv($output, $report);
-            fclose($output);
+            echo $workbook->toXlsx($report);
         }, $filename, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Cache-Control' => 'no-store, private',
         ]);
     }

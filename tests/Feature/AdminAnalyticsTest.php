@@ -302,54 +302,6 @@ class AdminAnalyticsTest extends TestCase
         $this->assertEquals('JNE', $shipResponse->json('data.courier_usage.0.courier'));
     }
 
-    /** CSV export includes paid sales in the requested period and excludes unpaid or old orders. */
-    public function test_admin_can_export_monthly_sales_as_csv(): void
-    {
-        $customer = User::factory()->create([
-            'role' => 'customer',
-            'name' => 'CSV Customer',
-            'email' => 'csv-customer@example.com',
-        ]);
-
-        $paidOrder = $this->createTestOrder([
-            'user_id' => $customer->id,
-            'status' => 'PAID',
-        ]);
-        OrderItem::create([
-            'order_id' => $paidOrder->id,
-            'product_name' => 'Monthly Serum',
-            'unit_price' => 100000,
-            'quantity' => 2,
-            'subtotal' => 200000,
-        ]);
-
-        $cancelledOrder = $this->createTestOrder([
-            'user_id' => $customer->id,
-            'status' => 'CANCELLED',
-        ]);
-        $oldOrder = $this->createTestOrder([
-            'user_id' => $customer->id,
-            'status' => 'PAID',
-        ]);
-        $oldOrder->created_at = now()->subYear();
-        $oldOrder->save();
-
-        $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
-            ->get('/api/admin/analytics/sales/export?period=month');
-
-        $response->assertOk();
-        $this->assertStringContainsString('text/csv', $response->headers->get('content-type'));
-        $this->assertStringContainsString('csv-customer@example.com', $response->streamedContent());
-        $this->assertStringContainsString('Monthly Serum x 2', $response->streamedContent());
-        $csv = $response->streamedContent();
-        $rows = array_values(array_filter(
-            array_map('str_getcsv', preg_split('/\r?\n/', $csv)),
-            fn ($row) => count($row) > 1
-        ));
-        $orderIds = array_map(fn ($row) => (int) $row[0], array_slice($rows, 1));
-        $this->assertSame([$paidOrder->id], $orderIds);
-    }
-
     /**
      * Read the files of an uncompressed ZIP (what the Excel export produces).
      *
@@ -388,7 +340,7 @@ class AdminAnalyticsTest extends TestCase
         $paid = $this->exportableSales();
 
         $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
-            ->get('/api/admin/analytics/sales/export?period=month&format=xlsx');
+            ->get('/api/admin/analytics/sales/export?period=month');
 
         $response->assertOk();
         $this->assertStringContainsString('spreadsheetml.sheet', $response->headers->get('content-type'));
@@ -421,24 +373,16 @@ class AdminAnalyticsTest extends TestCase
         $this->assertStringContainsString('Glow Serum', $files['xl/worksheets/sheet3.xml']);
     }
 
-    public function test_the_csv_export_writes_whole_rupiah_and_readable_labels(): void
-    {
-        $this->exportableSales();
-
-        $csv = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
-            ->get('/api/admin/analytics/sales/export?period=month')
-            ->streamedContent();
-
-        $rows = array_map('str_getcsv', array_values(array_filter(preg_split('/\r?\n/', ltrim($csv, "\xEF\xBB\xBF")))));
-        $this->assertSame('Metode Pembayaran', $rows[0][11]);
-        $this->assertSame(['212500', 'Terkirim', 'Transfer Bank'], [$rows[1][9], $rows[1][10], $rows[1][11]]);
-        $this->assertStringNotContainsString('212500.00', $csv);
-    }
-
-    public function test_sales_export_rejects_an_unknown_format(): void
+    public function test_sales_export_needs_a_valid_period_and_an_admin(): void
     {
         $this->withHeader('Authorization', "Bearer {$this->adminToken}")
-            ->getJson('/api/admin/analytics/sales/export?period=month&format=pdf')
+            ->getJson('/api/admin/analytics/sales/export?period=decade')
             ->assertUnprocessable();
+
+        $this->app['auth']->forgetGuards();
+        $customerToken = User::factory()->create(['role' => 'customer'])->createToken('t')->plainTextToken;
+        $this->withHeader('Authorization', "Bearer {$customerToken}")
+            ->getJson('/api/admin/analytics/sales/export?period=month')
+            ->assertForbidden();
     }
 }

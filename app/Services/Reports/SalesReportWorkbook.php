@@ -5,7 +5,7 @@ namespace App\Services\Reports;
 use Carbon\CarbonInterface;
 
 /**
- * Lays a sales report out as an Excel workbook (summary, orders, products) or as a CSV.
+ * Lays a sales report out as an Excel workbook: a summary, the orders and the products sold.
  *
  * @phpstan-type Report array{orders: array<int, array<string, mixed>>, products: array<int, array{name: string, quantity: int, revenue: int}>, totals: array<string, int>}
  */
@@ -36,37 +36,6 @@ class SalesReportWorkbook
         $this->productsSheet($workbook, $report);
 
         return $workbook->toBinary();
-    }
-
-    /**
-     * @param  resource  $output
-     * @param  array<string, mixed>  $report
-     */
-    public function writeCsv($output, array $report): void
-    {
-        fwrite($output, chr(0xEF).chr(0xBB).chr(0xBF));
-        fputcsv($output, self::ORDER_HEADERS, ',', '"', '');
-
-        foreach ($report['orders'] as $order) {
-            fputcsv($output, [
-                $order['id'],
-                $order['ordered_at']?->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
-                $order['paid_at']?->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
-                $this->safeText($order['customer']),
-                $this->safeText($order['email']),
-                $this->safeText($order['products']),
-                $order['items'],
-                $order['subtotal'],
-                $order['shipping'],
-                $order['total'],
-                $order['status'],
-                $order['payment_method'],
-                $order['courier'],
-                $order['service'],
-                $this->safeText($order['tracking_number']),
-                $this->safeText($order['city']),
-            ], ',', '"', '');
-        }
     }
 
     /** @param  array<string, mixed>  $report */
@@ -158,13 +127,5 @@ class SalesReportWorkbook
                 ['value' => $product['revenue'], 'style' => XlsxWorkbook::STYLE_RUPIAH],
             ]);
         }
-    }
-
-    /** Keep a spreadsheet from running text that starts like a formula. */
-    private function safeText(?string $value): string
-    {
-        $value ??= '';
-
-        return preg_match('/^[=+\-@\t\r]/', $value) ? "'".$value : $value;
     }
 }
